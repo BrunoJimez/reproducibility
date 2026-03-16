@@ -16,6 +16,7 @@ affiliations:
   - name: Independent Researcher, Dourados, MS, Brazil
     index: 1
 date: 2026
+archive_doi: https://doi.org/10.5281/zenodo.19042510
 bibliography: paper.bib
 ---
 
@@ -33,7 +34,7 @@ expected behavior established by the literature: the CO₂–global temperature
 relationship (composite score = 49.1; expected ≥ 40), the minimum wage effect
 on employment from Card & Krueger (composite score = 5.0; expected ≤ 20), and
 the replication rate of psychological studies from the Open Science Collaboration
-(composite score = 20.5; expected 10–30). The tool requires no proprietary
+(composite score = 20.8; expected 10–30). The tool requires no proprietary
 software, operating with open-source language models (Llama 3, Mistral) via
 Ollama or the free Groq API, or with an entirely offline rule-based parser.
 
@@ -160,7 +161,7 @@ sending data to external servers, recommended for sensitive research data.
 |---|---|---|---|---|---|---|---|
 | CO₂ → Global temperature | IPCC AR6 / NASA GISS | Linear | 69.0 | 0.711 | **49.1** | $\geq 40$ | ✅ |
 | Minimum wage → Employment | Card & Krueger [-@card1994] | Positive effect | 99.6 | 0.003 | **5.0** | $\leq 20$ | ✅ |
-| Original effect → Replication | OSC [-@osc2015] | 50% attenuation | 72.2 | 0.285 | **20.5** | 10–30 | ✅ |
+| Original effect → Replication | OSC [-@osc2015] | 50% attenuation | 72.2 | 0.285 | **20.8** | 10–30 | ✅ |
 
 *Datasets reconstructed from published statistics. Using `--live` flag fetches
 original data via API/OSF.*
@@ -169,7 +170,7 @@ The CO₂–temperature case (score = 49.1) confirms the well-documented robustn
 of the relationship [@ipcc2021]. The Card & Krueger case (score = 5.0) reflects
 that the minimum wage effect on employment is small relative to natural variance,
 explaining decades of controversy [@card1994; @neumark2000]. The OSC 2015 case
-(score = 20.5) is consistent with the finding that replication effects are
+(score = 20.8) is consistent with the finding that replication effects are
 approximately half the original magnitude [@osc2015].
 
 A key methodological finding emerged from Phase 3: the separation between
@@ -225,7 +226,7 @@ print(f"Score = {results['simulation'][0].reproducibility_score:.1f}/100")
 
 # Automated Tests
 
-The test suite in `tests/test_core.py` contains 40 tests organised in eight
+The test suite in `tests/test_core.py` contains 52 tests organised in eight
 classes covering all modules. The scientific score validation tests verify not
 only computational correctness but the scientific validity of the instrument —
 whether it correctly discriminates between the cases with known answers in Table 1.
