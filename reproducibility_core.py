@@ -2,18 +2,18 @@
 reproducibility_core.py
 ─────────────────────────────────────────────────────────────────────
 Pure logic of the Reproducibility system.
-No UI dependencies (sem streamlit, sem matplotlib.show()).
-Imported by app.py (Streamlit) e por scripts de linha de comando.
+No UI dependencies (no streamlit, no matplotlib.show()).
+Imported by app.py (Streamlit) and by command-line scripts.
 
-Módulos:
-  0 — Estruturas de dados (Variable, Hypothesis, results)
-  1 — OpenTranslator  (NLP: Parser de Regras / Groq / Ollama)
-  2 — ReproducibilityEngine  (simulação)
-  3 — EmpiricalTester        (real data)
-  4 — HypothesisComparator     (AIC, BIC, Peso de Akaike)
-  5 — TemporalAnalyser      (temporal drift)
-  6 — DataFetcher           (APIs abertas: World Bank, IBGE, NASA)
-  7 — GeradorDashboard        (matplotlib → fig, sem plt.show())
+Modules:
+  0 — Data structures  (Variable, Hypothesis, result types)
+  1 — OpenTranslator   (NLP: RuleParser / Groq / Ollama)
+  2 — ReproducibilityEngine  (Monte Carlo simulation)
+  3 — EmpiricalTester        (real data fit)
+  4 — HypothesisComparator   (AIC, BIC, Akaike weights)
+  5 — TemporalAnalyser       (temporal drift detection)
+  6 — DataFetcher            (open APIs: World Bank, IBGE, NASA)
+  7 — generate_dashboard     (matplotlib figure, no plt.show())
 """
 
 import re
@@ -29,7 +29,7 @@ from typing import Callable, List, Dict, Tuple, Optional, Any
 import numpy as np
 import scipy.stats as stats
 import matplotlib
-matplotlib.use("Agg")          # backend sem janela — essencial para Streamlit
+matplotlib.use("Agg")          # windowless backend — required for Streamlit
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import pandas as pd
@@ -44,7 +44,7 @@ warnings.filterwarnings("ignore")
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  MÓDULO 0 — ESTRUTURAS DE DADOS
+#  MODULE 0 — DATA STRUCTURES
 # ══════════════════════════════════════════════════════════════════════
 
 @dataclass
@@ -55,6 +55,7 @@ class Variable:
     description: str = ""
 
     def sample(self, n: int) -> np.ndarray:
+        """Draw n uniform random samples from [minimum, maximum]."""
         return np.random.uniform(self.minimum, self.maximum, n)
 
 
@@ -93,7 +94,7 @@ class EmpiricalResult:
     rmse: float
     mae: float
     residuals: np.ndarray
-    p_valor_residuals: float
+    residuals_p_value: float
     aic: float
     bic: float
     empirical_score: float
@@ -117,21 +118,24 @@ class TemporalResult:
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  MÓDULO 1 — TRADUTOR ABERTO (Open Science)
+#  MODULE 1 — OPEN TRANSLATOR (Open Science)
 # ══════════════════════════════════════════════════════════════════════
 
 class RuleParser:
     """
-    Converte hipóteses em linguagem natural para funções Python.
-    Zero dependências externas. Funciona offline. PT-BR e EN.
+    Converts natural language hypotheses into Python functions.
+    Zero external dependencies. Works fully offline. Supports PT-BR and EN.
     """
 
-    VARIAVEIS = {
+    # Variable dictionary: PT-BR and EN keywords → (symbol, min, max, unit)
+    VARIABLES = {
+        # Physics — temperature, pressure, volume
         "temperatura": ("T", 0.0, 1500.0, "K"),
         "temperature": ("T", 0.0, 1500.0, "K"),
         "pressao":     ("P", 0.01, 1000.0, "atm"),
         "pressure":    ("P", 0.01, 1000.0, "atm"),
         "volume":      ("V", 0.001, 1000.0, "L"),
+        # Physics — mechanics
         "velocidade":  ("v", 0.0, 1000.0, "m/s"),
         "velocity":    ("v", 0.0, 1000.0, "m/s"),
         "speed":       ("v", 0.0, 1000.0, "m/s"),
@@ -147,6 +151,7 @@ class RuleParser:
         "height":      ("h", 0.0, 1e4, "m"),
         "aceleracao":  ("a", 0.0, 1000.0, "m/s²"),
         "acceleration":("a", 0.0, 1000.0, "m/s²"),
+        # Physics — waves and electricity
         "frequencia":  ("f", 0.001, 1e9, "Hz"),
         "frequency":   ("f", 0.001, 1e9, "Hz"),
         "comprimento": ("L", 0.0, 1000.0, "m"),
@@ -160,11 +165,13 @@ class RuleParser:
         "resistance":  ("R", 0.001, 1e6, "Ω"),
         "potencia":    ("W", 0.0, 1e6, "W"),
         "power":       ("W", 0.0, 1e6, "W"),
-        "concentracao":("C", 0.0, 100.0, "mol/L"),
+        # Chemistry
+        "concentracao": ("C", 0.0, 100.0, "mol/L"),
         "concentration":("C", 0.0, 100.0, "mol/L"),
-        "ph":          ("pH", 0.0, 14.0, ""),
-        "densidade":   ("rho", 0.001, 20.0, "g/cm³"),
-        "density":     ("rho", 0.001, 20.0, "g/cm³"),
+        "ph":           ("pH", 0.0, 14.0, ""),
+        "densidade":    ("rho", 0.001, 20.0, "g/cm³"),
+        "density":      ("rho", 0.001, 20.0, "g/cm³"),
+        # Demographics and economics
         "populacao":   ("N", 1.0, 1e9, "ind."),
         "population":  ("N", 1.0, 1e9, "ind."),
         "taxa":        ("r", -2.0, 10.0, "%"),
@@ -173,115 +180,155 @@ class RuleParser:
         "growth":      ("g", -1.0, 5.0, "%"),
         "renda":       ("Y", 0.0, 1e6, "R$"),
         "income":      ("Y", 0.0, 1e6, "$"),
-        "estudo":      ("E", 0.0, 30.0, "anos"),
-        "education":   ("E", 0.0, 30.0, "anos"),
-        "experiencia": ("X", 0.0, 40.0, "anos"),
-        "experience":  ("X", 0.0, 40.0, "anos"),
+        "estudo":      ("E", 0.0, 30.0, "years"),
+        "education":   ("E", 0.0, 30.0, "years"),
+        "experiencia": ("X", 0.0, 40.0, "years"),
+        "experience":  ("X", 0.0, 40.0, "years"),
         "capital":     ("K", 0.0, 1e8, "R$"),
         "salario":     ("S", 0.0, 1e5, "R$"),
         "salary":      ("S", 0.0, 1e5, "$"),
-        "idade":       ("i", 0.0, 120.0, "anos"),
-        "age":         ("i", 0.0, 120.0, "anos"),
+        "wage":        ("S", 0.0, 1e5, "$"),
+        "idade":       ("i", 0.0, 120.0, "years"),
+        "age":         ("i", 0.0, 120.0, "years"),
         "inflacao":    ("pi", -0.5, 5.0, "%"),
         "inflation":   ("pi", -0.5, 5.0, "%"),
+        # Climate and environment
         "co2":         ("co2", 200.0, 800.0, "ppm"),
-        "temperatura_global": ("Tg", -2.0, 5.0, "°C anomalia"),
+        "temperatura_global": ("Tg", -2.0, 5.0, "°C anomaly"),
         "pib":         ("pib", 0.0, 1e13, "USD"),
         "gdp":         ("gdp", 0.0, 1e13, "USD"),
         "desemprego":  ("u", 0.0, 100.0, "%"),
         "unemployment":("u", 0.0, 100.0, "%"),
         "pobreza":     ("pov", 0.0, 100.0, "%"),
         "poverty":     ("pov", 0.0, 100.0, "%"),
-        "expectativa de vida": ("ev", 30.0, 100.0, "anos"),
-        "life expectancy":     ("ev", 30.0, 100.0, "anos"),
-        "area":        ("A", 0.0, 1e6, "m²"),
-        "raio":        ("r", 0.0, 1000.0, "m"),
-        "radius":      ("r", 0.0, 1000.0, "m"),
-        "angulo":      ("theta", 0.0, 6.28, "rad"),
+        "expectativa de vida": ("ev", 30.0, 100.0, "years"),
+        "life expectancy":     ("ev", 30.0, 100.0, "years"),
+        # Geometry
+        "area":   ("A", 0.0, 1e6, "m²"),
+        "raio":   ("r", 0.0, 1000.0, "m"),
+        "radius": ("r", 0.0, 1000.0, "m"),
+        "angulo": ("theta", 0.0, 6.28, "rad"),
     }
 
-    RELACOES = [
-        (r"quadrado|ao quadrado|segunda pot|quadratic|squared",       "potencia",    2.0),
-        (r"cubo|ao cubo|terceira pot|cubic|cubed",                    "potencia",    3.0),
-        (r"raiz quadrada|square root",                                "potencia",    0.5),
-        (r"exponencial|cresce exponencial|decai exponencial|exponential", "exponencial", None),
-        (r"logarítm|logaritmic|log de|\blog\b",                       "logaritmica", None),
-        (r"inversamente proporcional|varia inversamente|decresce com|diminui com|inversely proportional", "inversa", -1.0),
-        (r"proporcional|cresce com|aumenta com|varia com|depende de|directly proportional|grows with|increases with|varies with|linear", "linear", 1.0),
-        (r"constante|independe|n[aã]o (?:depende|varia)|constant|independent", "constante", 0.0),
+    # Relationship patterns — PT-BR and EN terms kept intentionally for bilingual detection
+    RELATIONS = [
+        (r"quadrado|ao quadrado|segunda pot|quadratic|squared|square of|the square|\bsquare\b",
+         "power", 2.0),
+        (r"cubo|ao cubo|terceira pot|cubic|cubed",
+         "power", 3.0),
+        (r"raiz quadrada|square root",
+         "power", 0.5),
+        (r"exponencial|cresce exponencial|decai exponencial|exponential",
+         "exponential", None),
+        (r"logarítm|logaritmic|log de|\blog\b",
+         "logarithmic", None),
+        (r"inversamente proporcional|varia inversamente|decresce com|diminui com"
+         r"|inversely proportional|decreases with|decreases|diminishes with|diminishes",
+         "inverse", -1.0),
+        (r"proporcional|cresce com|aumenta com|varia com|depende de"
+         r"|directly proportional|grows with|increases with|varies with|linear",
+         "linear", 1.0),
+        (r"constante|independe|n[aã]o (?:depende|varia)|constant|independent",
+         "constant", 0.0),
     ]
 
     def __init__(self):
-        self._re = [(re.compile(p, re.IGNORECASE), t, e) for p, t, e in self.RELACOES]
+        self._re = [(re.compile(p, re.IGNORECASE), t, e) for p, t, e in self.RELATIONS]
 
     def _normalize(self, s: str) -> str:
+        """Strip accents and normalise whitespace for bilingual keyword matching."""
         nfkd = unicodedata.normalize("NFKD", s.lower())
-        return re.sub(r"\s+", " ", "".join(c for c in nfkd if not unicodedata.combining(c))).strip()
+        return re.sub(r"\s+", " ",
+                      "".join(c for c in nfkd if not unicodedata.combining(c))).strip()
 
-    def _extrair_variables(self, texto: str) -> List[Variable]:
-        tn = self._normalize(texto)
-        encontradas, usados = [], set()
-        for palavra, (name, vmin, vmax, un) in self.VARIAVEIS.items():
-            if re.search(r"\b" + re.escape(self._normalize(palavra)) + r"\b", tn) and name not in usados:
-                encontradas.append(Variable(name, vmin, vmax, f"{palavra} ({un})" if un else palavra))
-                usados.add(name)
-        if not encontradas:
-            for m in re.finditer(r"(?:fun[cç][aã]o d[aeo]s?|depende d[aeo]s?|varia com|proporcional a[os]?)\s+(\w+)", texto, re.IGNORECASE):
+    def _extract_variables(self, text: str) -> List[Variable]:
+        """Identify scientific variables mentioned in the hypothesis text."""
+        tn = self._normalize(text)
+        found, used = [], set()
+        for word, (name, vmin, vmax, unit) in self.VARIABLES.items():
+            pattern = r"\b" + re.escape(self._normalize(word)) + r"\b"
+            if re.search(pattern, tn) and name not in used:
+                found.append(Variable(name, vmin, vmax,
+                                      f"{word} ({unit})" if unit else word))
+                used.add(name)
+        if not found:
+            # Fallback: try to extract generic variable names from sentence structure
+            for m in re.finditer(
+                r"(?:fun[cç][aã]o d[aeo]s?|depende d[aeo]s?|varia com"
+                r"|depends on|varies with|function of)\s+(\w+)",
+                text, re.IGNORECASE
+            ):
                 t = m.group(1).lower()
-                if len(t) > 2 and t not in usados:
-                    encontradas.append(Variable(f"x{len(encontradas)+1}", 0.0, 100.0, t))
-                    usados.add(t)
-        return encontradas or [Variable("x", 0.0, 100.0, "variável independente")]
+                if len(t) > 2 and t not in used:
+                    found.append(Variable(f"x{len(found)+1}", 0.0, 100.0, t))
+                    used.add(t)
+        return found or [Variable("x", 0.0, 100.0, "independent variable")]
 
-    def _identify_relation(self, texto: str) -> Tuple[str, Optional[float]]:
-        for regex, tipo, exp in self._re:
-            if regex.search(texto):
-                return tipo, exp
+    def _identify_relation(self, text: str) -> Tuple[str, Optional[float]]:
+        """Determine the mathematical relationship type from the hypothesis text."""
+        for regex, rel_type, exponent in self._re:
+            if regex.search(text):
+                return rel_type, exponent
         return "linear", 1.0
 
-    def _generate_code(self, variables: List[Variable], relacao: str, exp: Optional[float]) -> str:
+    def _generate_code(self, variables: List[Variable],
+                       relation: str, exp: Optional[float]) -> str:
+        """Generate a Python function string for the identified relationship type."""
         names = [v.name for v in variables]
-        x = names[0]
-        if relacao == "linear":
+        x     = names[0]
+        if relation == "linear":
             expr = " + ".join(f"v['{n}']" for n in names)
-        elif relacao == "inversa":
+        elif relation == "inverse":
             base = f"1.0 / (v['{x}'] + 1e-10)"
-            expr = f"({base}) * (" + " + ".join(f"v['{n}']" for n in names[1:]) + ")" if len(names) > 1 else base
-        elif relacao == "potencia":
-            e = exp or 2.0
+            expr = (f"({base}) * (" + " + ".join(f"v['{n}']" for n in names[1:]) + ")"
+                    if len(names) > 1 else base)
+        elif relation == "power":
+            e    = exp or 2.0
             expr = " + ".join(f"v['{n}'] ** {e}" for n in names)
-        elif relacao == "exponencial":
+        elif relation == "exponential":
             soma = " + ".join(f"v['{n}']" for n in names)
             expr = f"np.exp(({soma}) / {max(1, len(names)) * 50})"
-        elif relacao == "logaritmica":
+        elif relation == "logarithmic":
             expr = " + ".join(f"np.log(np.abs(v['{n}']) + 1)" for n in names)
-        elif relacao == "constante":
+        elif relation == "constant":
             expr = f"np.ones_like(v['{x}']) * 1.0"
         else:
             expr = f"v['{x}']"
         return f"def hypothesis(v):\n    return {expr}"
 
-    def parse(self, texto: str) -> Hypothesis:
-        variables    = self._extrair_variables(texto)
-        relacao, exp = self._identify_relation(texto)
-        codigo       = self._generate_code(variables, relacao, exp)
+    def parse(self, text: str) -> Hypothesis:
+        """Parse a natural language hypothesis and return an executable Hypothesis object."""
+        variables     = self._extract_variables(text)
+        relation, exp = self._identify_relation(text)
+        code          = self._generate_code(variables, relation, exp)
         ns = {"np": np}
-        exec(codigo, ns)
+        exec(code, ns)
         names_var = [v.description.split("(")[0].strip() for v in variables]
-        rel_map = {"linear": "linear", "inversa": "inversa", "potencia": f"potência(exp={exp})",
-                   "exponencial": "exponencial", "logaritmica": "logarítmica", "constante": "constante"}
+        rel_map = {
+            "linear":      "linear",
+            "inverse":     "inverse",
+            "power":       f"power(exp={exp})",
+            "exponential": "exponential",
+            "logarithmic": "logarithmic",
+            "constant":    "constant",
+        }
         return Hypothesis(
-            name=f"Hipótese {rel_map.get(relacao, relacao).capitalize()}({', '.join(names_var)})",
-            description=texto,
+            name=(f"Hypothesis "
+                  f"{rel_map.get(relation, relation).capitalize()}"
+                  f"({', '.join(names_var)})"),
+            description=text,
             function=ns["hypothesis"],
             variables=variables,
-            prediction=f"Relação {rel_map.get(relacao, relacao)} entre {', '.join(names_var)}",
-            origin="parser_regras",
-            generated_code=codigo
+            prediction=(f"{rel_map.get(relation, relation).capitalize()} "
+                        f"relationship between {', '.join(names_var)}"),
+            origin="rule_parser",
+            generated_code=code,
         )
 
 
-_GROQ_SYSTEM = textwrap.dedent("""
+# ── Shared LLM prompt (Groq and Ollama) ───────────────────────────────
+
+_LLM_SYSTEM = textwrap.dedent("""
     You are a scientific hypothesis formalization assistant.
     Given a hypothesis in natural language (Portuguese or English),
     return ONLY a valid JSON (no markdown, no extra text):
@@ -297,380 +344,510 @@ _GROQ_SYSTEM = textwrap.dedent("""
 """)
 
 
-def _construir_hypothesis_de_json(e: dict, origin: str) -> Hypothesis:
-    variables = [Variable(v["name"], v["minimum"], v["maximum"], v.get("description", "")) for v in e["variables"]]
+def _build_hypothesis_from_json(data: dict, origin: str) -> Hypothesis:
+    """Construct a Hypothesis object from a parsed LLM JSON response."""
+    variables = [
+        Variable(v["name"], v["minimum"], v["maximum"], v.get("description", ""))
+        for v in data["variables"]
+    ]
     ns = {"np": np}
-    exec(e["code_function"], ns)
-    return Hypothesis(name=e["name"], description=e["description"], function=ns["hypothesis"],
-                    variables=variables, prediction=e.get("prediction", ""),
-                    origin=origin, generated_code=e["code_function"])
+    exec(data["code_function"], ns)
+    return Hypothesis(
+        name=data["name"],
+        description=data["description"],
+        function=ns["hypothesis"],
+        variables=variables,
+        prediction=data.get("prediction", ""),
+        origin=origin,
+        generated_code=data["code_function"],
+    )
 
 
-def translate_via_groq(texto: str, api_key: str, modelo: str = "llama-3.3-70b-versatile") -> Hypothesis:
+def translate_via_groq(text: str, api_key: str,
+                       model: str = "llama-3.3-70b-versatile") -> Hypothesis:
+    """Translate a hypothesis using the Groq cloud API (free tier, no credit card)."""
     if not _REQUESTS_OK:
-        raise RuntimeError("requests não instalado")
+        raise RuntimeError("requests not installed")
     resp = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": modelo, "temperature": 0.1, "max_tokens": 800,
-              "messages": [{"role": "system", "content": _GROQ_SYSTEM},
-                           {"role": "user",   "content": texto}]},
-        timeout=30
+        headers={"Authorization": f"Bearer {api_key}",
+                 "Content-Type": "application/json"},
+        json={"model": model, "temperature": 0.1, "max_tokens": 800,
+              "messages": [{"role": "system", "content": _LLM_SYSTEM},
+                           {"role": "user",   "content": text}]},
+        timeout=30,
     )
     resp.raise_for_status()
-    conteudo = resp.json()["choices"][0]["message"]["content"].strip()
-    conteudo = re.sub(r"^```(?:json)?\s*|\s*```$", "", conteudo).strip()
-    return _construir_hypothesis_de_json(json.loads(conteudo), f"groq:{modelo}")
+    content = resp.json()["choices"][0]["message"]["content"].strip()
+    content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content).strip()
+    return _build_hypothesis_from_json(json.loads(content), f"groq:{model}")
 
 
-def translate_via_ollama(texto: str, modelo: str = "llama3.2") -> Hypothesis:
+def translate_via_ollama(text: str, model: str = "llama3.2") -> Hypothesis:
+    """Translate a hypothesis using a locally running Ollama instance (fully private)."""
     if not _REQUESTS_OK:
-        raise RuntimeError("requests não instalado")
+        raise RuntimeError("requests not installed")
     resp = requests.post(
         "http://localhost:11434/api/chat",
-        json={"model": modelo, "stream": False, "options": {"temperature": 0.1},
-              "messages": [{"role": "system", "content": _GROQ_SYSTEM},
-                           {"role": "user",   "content": texto}]},
-        timeout=120
+        json={"model": model, "stream": False, "options": {"temperature": 0.1},
+              "messages": [{"role": "system", "content": _LLM_SYSTEM},
+                           {"role": "user",   "content": text}]},
+        timeout=120,
     )
     resp.raise_for_status()
-    conteudo = resp.json()["message"]["content"].strip()
-    conteudo = re.sub(r"^```(?:json)?\s*|\s*```$", "", conteudo).strip()
-    return _construir_hypothesis_de_json(json.loads(conteudo), f"ollama:{modelo}")
+    content = resp.json()["message"]["content"].strip()
+    content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content).strip()
+    return _build_hypothesis_from_json(json.loads(content), f"ollama:{model}")
 
 
 def ollama_available() -> bool:
+    """Return True if a local Ollama instance is reachable."""
     try:
-        return _REQUESTS_OK and requests.get("http://localhost:11434/api/tags", timeout=2).status_code == 200
+        return (_REQUESTS_OK and
+                requests.get("http://localhost:11434/api/tags", timeout=2).status_code == 200)
     except Exception:
         return False
 
 
 class OpenTranslator:
     """
-    Orquestrador: Ollama (local) → Groq (gratuito) → RuleParser (offline).
-    Sempre produz uma hipótese.
+    Orchestrator: Ollama (local) → Groq (free cloud) → RuleParser (offline).
+    Always produces a Hypothesis regardless of which layers are available.
     """
+
     def __init__(self, groq_key: Optional[str] = None,
                  groq_modelo: str = "llama-3.3-70b-versatile",
                  ollama_model: str = "llama3.2"):
-        self.parser      = RuleParser()
-        self.groq_key    = groq_key
-        self.groq_modelo = groq_modelo
+        self.parser       = RuleParser()
+        self.groq_key     = groq_key
+        self.groq_modelo  = groq_modelo
         self.ollama_model = ollama_model
 
-    def translate(self, texto: str, log: Optional[List[str]] = None) -> Hypothesis:
+    def translate(self, text: str, log: Optional[List[str]] = None) -> Hypothesis:
+        """
+        Translate a natural language hypothesis into an executable Hypothesis object.
+        Tries each layer in order: Ollama → Groq → RuleParser.
+        """
         def _log(msg):
             if log is not None:
                 log.append(msg)
 
         if ollama_available():
             try:
-                _log(f"🟢 Ollama ({self.ollama_model}) — LLM local")
-                return translate_via_ollama(texto, self.ollama_model)
+                _log(f"🟢 Ollama ({self.ollama_model}) — local LLM")
+                return translate_via_ollama(text, self.ollama_model)
             except Exception as e:
-                _log(f"⚠️ Ollama falhou: {e}")
+                _log(f"⚠️ Ollama failed: {e}")
 
         if self.groq_key:
             try:
-                _log(f"🟡 Groq ({self.groq_modelo}) — LLM gratuito na nuvem")
-                return translate_via_groq(texto, self.groq_key, self.groq_modelo)
+                _log(f"🟡 Groq ({self.groq_modelo}) — free cloud LLM")
+                return translate_via_groq(text, self.groq_key, self.groq_modelo)
             except Exception as e:
-                _log(f"⚠️ Groq falhou: {e}")
+                _log(f"⚠️ Groq failed: {e}")
 
-        _log("⚪ Parser de Regras — offline, zero dependências")
-        return self.parser.parse(texto)
+        _log("⚪ RuleParser — offline, zero dependencies")
+        return self.parser.parse(text)
 
     def status(self) -> Dict[str, str]:
+        """Return the availability status of each translation layer."""
         return {
-            "Camada 0 — Parser de Regras": "✅ sempre disponível",
-            "Camada 1 — Groq (gratuito)":  f"✅ {self.groq_modelo}" if self.groq_key else "⚪ sem chave (opcional)",
-            "Camada 2 — Ollama (local)":   f"✅ {self.ollama_model}" if ollama_available() else "⚪ não detectado (opcional)",
+            "Layer 0 — RuleParser":  "✅ always available",
+            "Layer 1 — Groq (free)": (f"✅ {self.groq_modelo}" if self.groq_key
+                                      else "⚪ no key (optional)"),
+            "Layer 2 — Ollama (local)": (f"✅ {self.ollama_model}" if ollama_available()
+                                         else "⚪ not detected (optional)"),
         }
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  MÓDULO 2 — MOTOR DE REPRODUTIBILIDADE (simulação)
+#  MODULE 2 — REPRODUCIBILITY ENGINE (Monte Carlo simulation)
 # ══════════════════════════════════════════════════════════════════════
 
 class ReproducibilityEngine:
-    def __init__(self, n_trials: int = 80, sample_size: int = 300, seed: Optional[int] = None):
-        self.n_trials = n_trials
+    """
+    Evaluates the internal consistency of a hypothesis via Monte Carlo simulation.
+    Score formula: S = 100 · exp(−CV / 10), where CV is the Coefficient of Variation.
+    """
+
+    def __init__(self, n_trials: int = 80, sample_size: int = 300,
+                 seed: Optional[int] = None):
+        self.n_trials    = n_trials
         self.sample_size = sample_size
+        self.seed        = seed
         if seed is not None:
             np.random.seed(seed)
 
     def test(self, hypothesis: Hypothesis) -> SimulationResult:
+        """
+        Run n_trials independent Monte Carlo trials and compute the reproducibility score.
+        The seed is reset before each call to ensure deterministic results.
+        """
+        if self.seed is not None:
+            np.random.seed(self.seed)
         results = []
         for _ in range(self.n_trials):
-            amostras = {v.name: v.sample(self.sample_size) for v in hypothesis.variables}
-            r = hypothesis.function(amostras)
+            samples = {v.name: v.sample(self.sample_size) for v in hypothesis.variables}
+            r = hypothesis.function(samples)
             results.append(float(np.mean(r) if hasattr(r, "__len__") else r))
         hypothesis.results = results
         return self._metrics(hypothesis.name, results)
 
     def _metrics(self, name: str, results: List[float]) -> SimulationResult:
-        arr = np.array(results)
-        mean, dp = np.mean(arr), np.std(arr)
-        cv = (dp / abs(mean) * 100) if mean != 0 else float("inf")
-        ic = stats.t.interval(0.95, df=len(arr)-1, loc=mean, scale=stats.sem(arr))
+        """Compute statistical metrics and the reproducibility score from trial results."""
+        arr  = np.array(results)
+        mean = np.mean(arr)
+        std  = np.std(arr)
+        cv   = (std / abs(mean) * 100) if mean != 0 else float("inf")
+        ic   = stats.t.interval(0.95, df=len(arr)-1, loc=mean, scale=stats.sem(arr))
         _, p_norm = stats.shapiro(arr[:50])
         score = min(100.0, 100 * np.exp(-cv / 10))
-        cls = ("✅ Highly reproducible" if score >= 85 else
+        cls = ("✅ Highly reproducible"     if score >= 85 else
                "🟡 Moderately reproducible" if score >= 60 else
-               "🟠 Low reproducibility" if score >= 35 else
+               "🟠 Low reproducibility"     if score >= 35 else
                "❌ Not reproducible")
-        return SimulationResult(name, self.n_trials, self.sample_size, mean, dp, cv,
-                                  ic, p_norm, score, cls, results)
+        return SimulationResult(name, self.n_trials, self.sample_size,
+                                mean, std, cv, ic, p_norm, score, cls, results)
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  MÓDULO 3 — TESTE EMPÍRICO (real data)
+#  MODULE 3 — EMPIRICAL TESTER (fit to real data)
 # ══════════════════════════════════════════════════════════════════════
 
 class EmpiricalTester:
+    """Tests how well a hypothesis function explains a real dataset."""
+
     def test(self, hypothesis: Hypothesis, df: pd.DataFrame,
-               target_column: str, mapping: Dict[str, str]) -> EmpiricalResult:
-        v = {k: df[col].values.astype(float) for k, col in mapping.items()}
-        y_prev = hypothesis.function(v)
-        if not hasattr(y_prev, "__len__"):
-            y_prev = np.full(len(df), float(y_prev))
-        y_prev = np.array(y_prev, dtype=float)
+             target_column: str, mapping: Dict[str, str]) -> EmpiricalResult:
+        """
+        Fit the hypothesis to real data and compute goodness-of-fit metrics.
+
+        Parameters
+        ----------
+        hypothesis    : Hypothesis to evaluate
+        df            : DataFrame containing the empirical data
+        target_column : name of the dependent variable column in df
+        mapping       : maps hypothesis variable symbols to df column names
+                        e.g. {"E": "education_years", "X": "experience_years"}
+        """
+        v      = {k: df[col].values.astype(float) for k, col in mapping.items()}
+        y_pred = hypothesis.function(v)
+        if not hasattr(y_pred, "__len__"):
+            y_pred = np.full(len(df), float(y_pred))
+        y_pred = np.array(y_pred, dtype=float)
         y_real = df[target_column].values.astype(float)
-        mask = ~(np.isnan(y_real) | np.isnan(y_prev))
-        y_real, y_prev = y_real[mask], y_prev[mask]
-        n = len(y_real)
-        res = y_real - y_prev
+        mask   = ~(np.isnan(y_real) | np.isnan(y_pred))
+        y_real, y_pred = y_real[mask], y_pred[mask]
+        n      = len(y_real)
+        res    = y_real - y_pred
         ss_res = np.sum(res ** 2)
         ss_tot = np.sum((y_real - np.mean(y_real)) ** 2)
-        r2   = 1 - ss_res / ss_tot if ss_tot != 0 else 0.0
-        rmse = np.sqrt(np.mean(res ** 2))
-        mae  = np.mean(np.abs(res))
+        r2     = 1 - ss_res / ss_tot if ss_tot != 0 else 0.0
+        rmse   = np.sqrt(np.mean(res ** 2))
+        mae    = np.mean(np.abs(res))
         _, p_res = stats.shapiro(res[:50])
-        k = len(hypothesis.variables) + 1
-        ll = -n / 2 * np.log(ss_res / n + 1e-10)
-        aic, bic = 2*k - 2*ll, k*np.log(n) - 2*ll
+        k   = len(hypothesis.variables) + 1
+        ll  = -n / 2 * np.log(ss_res / n + 1e-10)
+        aic = 2*k - 2*ll
+        bic = k * np.log(n) - 2*ll
         score = max(0.0, min(100.0, r2 * 70 + (p_res > 0.05) * 30))
-        return EmpiricalResult(hypothesis.name, n, r2, rmse, mae, res, p_res, aic, bic, score, 0.0)
+        return EmpiricalResult(hypothesis.name, n, r2, rmse, mae,
+                               res, p_res, aic, bic, score, 0.0)
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  MÓDULO 4 — COMPARAÇÃO DE HIPÓTESES
+#  MODULE 4 — HYPOTHESIS COMPARATOR (Akaike information criterion)
 # ══════════════════════════════════════════════════════════════════════
 
 class HypothesisComparator:
+    """Ranks competing hypotheses using the Akaike Information Criterion (AIC)."""
+
     def compare(self, results_emp: List[EmpiricalResult],
-                 results_sim: Optional[List[SimulationResult]] = None) -> ComparisonResult:
-        comparativo = []
+                results_sim: Optional[List[SimulationResult]] = None) -> ComparisonResult:
+        """
+        Rank hypotheses by AIC and compute normalised Akaike weights.
+
+        Akaike weight:  w_i = exp(−Δᵢ/2) / Σⱼ exp(−Δⱼ/2)
+        where Δᵢ = AICᵢ − AIC_min.
+
+        A larger weight means a greater probability that hypothesis i
+        is the best approximation to reality among the tested set.
+        """
+        rows = []
         for re_ in results_emp:
-            linha = {"name": re_.hypothesis_name, "r2": re_.r_squared, "rmse": re_.rmse,
-                     "aic": re_.aic, "bic": re_.bic, "empirical_score": re_.empirical_score,
-                     "simulated_score": None}
+            row = {
+                "name":            re_.hypothesis_name,
+                "r2":              re_.r_squared,
+                "rmse":            re_.rmse,
+                "aic":             re_.aic,
+                "bic":             re_.bic,
+                "empirical_score": re_.empirical_score,
+                "simulated_score": None,
+            }
             if results_sim:
                 for rs in results_sim:
                     if rs.hypothesis_name == re_.hypothesis_name:
-                        linha["simulated_score"] = rs.reproducibility_score
-            comparativo.append(linha)
-        comparativo.sort(key=lambda x: x["aic"])
-        aic_min = comparativo[0]["aic"]
-        for c in comparativo:
-            c["delta_aic"]    = c["aic"] - aic_min
-            c["akaike_weight"]  = np.exp(-c["delta_aic"] / 2)
-        soma = sum(c["akaike_weight"] for c in comparativo)
-        for c in comparativo:
-            c["akaike_weight"] /= soma
-        return ComparisonResult(ranking=comparativo, winner=comparativo[0])
+                        row["simulated_score"] = rs.reproducibility_score
+            rows.append(row)
+
+        rows.sort(key=lambda x: x["aic"])
+        aic_min = rows[0]["aic"]
+        for row in rows:
+            row["delta_aic"]    = row["aic"] - aic_min
+            row["akaike_weight"] = np.exp(-row["delta_aic"] / 2)
+        total = sum(row["akaike_weight"] for row in rows)
+        for row in rows:
+            row["akaike_weight"] /= total
+        return ComparisonResult(ranking=rows, winner=rows[0])
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  MÓDULO 5 — ANÁLISE TEMPORAL
+#  MODULE 5 — TEMPORAL ANALYSER (drift detection)
 # ══════════════════════════════════════════════════════════════════════
 
 class TemporalAnalyser:
+    """Detects whether a hypothesis's predictive power drifts over time."""
+
     def __init__(self, n_windows: int = 5):
         self.n_windows = n_windows
 
     def analyse(self, hypothesis: Hypothesis, df: pd.DataFrame,
-                 time_column: str, target_column: str,
-                 mapping: Dict[str, str]) -> TemporalResult:
-        df_ord = df.sort_values(time_column).reset_index(drop=True)
-        tam    = max(1, len(df_ord) // self.n_windows)
-        windows = [df_ord.iloc[i:i+tam].reset_index(drop=True)
-                   for i in range(0, len(df_ord), tam)][:self.n_windows]
-        testador = EmpiricalTester()
+                time_column: str, target_column: str,
+                mapping: Dict[str, str]) -> TemporalResult:
+        """
+        Split the dataset into time windows and compute the empirical score in each.
+        A significant negative linear trend (slope) indicates temporal drift.
+        """
+        df_sorted   = df.sort_values(time_column).reset_index(drop=True)
+        window_size = max(1, len(df_sorted) // self.n_windows)
+        windows     = [
+            df_sorted.iloc[i:i + window_size].reset_index(drop=True)
+            for i in range(0, len(df_sorted), window_size)
+        ][:self.n_windows]
+        tester = EmpiricalTester()
         scores, labels = [], []
-        for i, jan in enumerate(windows):
-            if len(jan) < 5:
+        for i, win in enumerate(windows):
+            if len(win) < 5:
                 continue
-            t_min = int(jan[time_column].iat[0])
-            t_max = int(jan[time_column].iat[-1])
-            labels.append(f"J{i+1} [{t_min}–{t_max}]")
+            t_min = int(win[time_column].iat[0])
+            t_max = int(win[time_column].iat[-1])
+            labels.append(f"W{i+1} [{t_min}–{t_max}]")
             try:
-                r = testador.test(hypothesis, jan, target_column, mapping)
+                r = tester.test(hypothesis, win, target_column, mapping)
                 scores.append(r.empirical_score)
             except Exception:
                 scores.append(0.0)
-        slope, p_val = (0.0, 1.0) if len(scores) < 2 else stats.linregress(range(len(scores)), scores)[:2][::-1][::-1]
+        slope, p_val = 0.0, 1.0
         if len(scores) >= 2:
-            res_lr = stats.linregress(np.arange(len(scores)), scores)
-            slope, p_val = res_lr.slope, res_lr.pvalue
+            lr    = stats.linregress(np.arange(len(scores)), scores)
+            slope = lr.slope
+            p_val = lr.pvalue
         stable = abs(slope) < 2.0
-        return TemporalResult(hypothesis.name, labels, scores, slope, stable,
-                                 not stable and p_val < 0.1)
+        return TemporalResult(hypothesis.name, labels, scores, slope,
+                              stable, not stable and p_val < 0.1)
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  MÓDULO 6 — BUSCADOR DE DADOS (APIs abertas)
+#  MODULE 6 — DATA FETCHER (open APIs, no authentication required)
 # ══════════════════════════════════════════════════════════════════════
 
 class DataFetcher:
     """
-    Acessa fontes de dados abertas e gratuitas:
-      - World Bank API  (indicadores globais, sem chave)
-      - IBGE SIDRA      (dados brasileiros, sem chave)
-      - NASA POWER      (dados climáticos, sem chave)
-      - Our World in Data (CSVs públicos)
+    Accesses free and open data sources without any API key:
+      - World Bank API  (global development indicators)
+      - IBGE SIDRA      (Brazilian national statistics)
+      - NASA POWER      (global climate data)
+      - Synthetic       (offline fallback for testing)
     """
 
-    # ── World Bank ──────────────────────────────────────────────────
-    WORLDBANK_INDICADORES = {
-        "pib_per_capita":     "NY.GDP.PCAP.CD",
-        "expectativa_vida":   "SP.DYN.LE00.IN",
-        "desemprego":         "SL.UEM.TOTL.ZS",
-        "co2_per_capita":     "EN.ATM.CO2E.PC",
-        "populacao":          "SP.POP.TOTL",
-        "mortalidade_infantil":"SP.DYN.IMRT.IN",
-        "acesso_eletricidade":"EG.ELC.ACCS.ZS",
-        "pobreza_extrema":    "SI.POV.DDAY",
-        "alfabetizacao":      "SE.ADT.LITR.ZS",
-        "gasto_saude":        "SH.XPD.CHEX.GD.ZS",
-        "gasto_educacao":     "SE.XPD.TOTL.GD.ZS",
-        "emissoes_co2":       "EN.ATM.CO2E.KT",
+    # English indicator keys → World Bank API codes
+    WORLDBANK_INDICATORS = {
+        "gdp_per_capita":        "NY.GDP.PCAP.CD",
+        "life_expectancy":       "SP.DYN.LE00.IN",
+        "unemployment":          "SL.UEM.TOTL.ZS",
+        "co2_per_capita":        "EN.ATM.CO2E.PC",
+        "population":            "SP.POP.TOTL",
+        "infant_mortality":      "SP.DYN.IMRT.IN",
+        "electricity_access":    "EG.ELC.ACCS.ZS",
+        "extreme_poverty":       "SI.POV.DDAY",
+        "literacy_rate":         "SE.ADT.LITR.ZS",
+        "health_expenditure":    "SH.XPD.CHEX.GD.ZS",
+        "education_expenditure": "SE.XPD.TOTL.GD.ZS",
+        "co2_emissions":         "EN.ATM.CO2E.KT",
+        # Portuguese aliases kept for backward compatibility with existing tests
+        "pib_per_capita":        "NY.GDP.PCAP.CD",
+        "expectativa_vida":      "SP.DYN.LE00.IN",
+        "desemprego":            "SL.UEM.TOTL.ZS",
+        "populacao":             "SP.POP.TOTL",
     }
 
     def list_worldbank_indicators(self) -> Dict[str, str]:
-        return self.WORLDBANK_INDICADORES
+        """Return the available World Bank indicator keys and their API codes."""
+        return self.WORLDBANK_INDICATORS
 
-    def fetch_worldbank(self, indicador: str, pais: str = "BR",
-                         ano_inicio: int = 2000, ano_fim: int = 2023) -> pd.DataFrame:
+    def fetch_worldbank(self, indicator: str, country: str = "BR",
+                        year_start: int = 2000, year_end: int = 2023) -> pd.DataFrame:
         """
-        Busca indicador do World Bank.
-        indicador: chave do dict acima OU código direto (ex: 'NY.GDP.PCAP.CD')
-        pais: código ISO2 (BR, US, DE, CN, etc.) ou 'all' para todos
+        Fetch a single indicator from the World Bank Open Data API.
+
+        Parameters
+        ----------
+        indicator  : key from WORLDBANK_INDICATORS or a direct WB code
+        country    : ISO 3166-1 alpha-2 code (BR, US, DE, …) or 'all'
+        year_start : first year to fetch
+        year_end   : last year to fetch
         """
         if not _REQUESTS_OK:
-            raise RuntimeError("requests não disponível")
-        codigo = self.WORLDBANK_INDICADORES.get(indicador, indicador)
-        url = (f"https://api.worldbank.org/v2/country/{pais}"
-               f"/indicator/{codigo}"
-               f"?format=json&per_page=500"
-               f"&date={ano_inicio}:{ano_fim}")
+            raise RuntimeError("requests not available")
+        code = self.WORLDBANK_INDICATORS.get(indicator, indicator)
+        url  = (f"https://api.worldbank.org/v2/country/{country}"
+                f"/indicator/{code}"
+                f"?format=json&per_page=500"
+                f"&date={year_start}:{year_end}")
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
-        dados = resp.json()
-        if len(dados) < 2 or not dados[1]:
-            raise ValueError(f"Sem dados para {indicador}/{pais}")
-        registros = [{"ano": int(d["date"]), "valor": d["value"], "country": d["country"]["value"]}
-                     for d in dados[1] if d["value"] is not None]
-        df = pd.DataFrame(registros).sort_values("ano").reset_index(drop=True)
+        data = resp.json()
+        if len(data) < 2 or not data[1]:
+            raise ValueError(f"No data found for indicator '{indicator}' / country '{country}'")
+        records = [
+            {"year": int(d["date"]), "value": d["value"],
+             "country": d["country"]["value"]}
+            for d in data[1] if d["value"] is not None
+        ]
+        df = pd.DataFrame(records).sort_values("year").reset_index(drop=True)
         df.attrs["source"]    = "World Bank"
-        df.attrs["indicator"] = codigo
-        df.attrs["country"]     = pais
+        df.attrs["indicator"] = code
+        df.attrs["country"]   = country
         return df
 
-    def fetch_worldbank_multiple_countries(self, indicadores: List[str],
-                                          paises: List[str] = None,
-                                          ano_inicio: int = 2000,
-                                          ano_fim: int = 2022) -> pd.DataFrame:
-        """Busca múltiplos indicadores para múltiplos países e junta em um DataFrame."""
-        if paises is None:
-            paises = ["BR", "US", "DE", "CN", "IN", "ZA", "NG", "AR", "MX", "JP"]
-        dfs = []
-        for pais in paises:
-            row = {"country": pais}
-            for ind in indicadores:
+    def fetch_worldbank_multiple_countries(self, indicators: List[str],
+                                           countries: List[str] = None,
+                                           year_start: int = 2000,
+                                           year_end:   int = 2022) -> pd.DataFrame:
+        """
+        Fetch multiple indicators for multiple countries and merge into one DataFrame.
+        Each row represents one country averaged over the requested period.
+        """
+        if countries is None:
+            countries = ["BR", "US", "DE", "CN", "IN", "ZA", "NG", "AR", "MX", "JP"]
+        rows = []
+        for country in countries:
+            row = {"country": country}
+            for ind in indicators:
                 try:
-                    df_ind = self.fetch_worldbank(ind, pais, ano_inicio, ano_fim)
-                    row[ind] = df_ind["valor"].mean()
+                    df_ind  = self.fetch_worldbank(ind, country, year_start, year_end)
+                    row[ind] = df_ind["value"].mean()
                 except Exception:
                     row[ind] = np.nan
-            dfs.append(row)
-        return pd.DataFrame(dfs).dropna()
+            rows.append(row)
+        return pd.DataFrame(rows).dropna()
 
-    # ── NASA POWER (clima) ──────────────────────────────────────────
+    # ── NASA POWER (climate data) ────────────────────────────────────────
+
     def fetch_nasa_climate(self, lat: float = -15.8, lon: float = -47.9,
-                           parametros: List[str] = None,
-                           ano_inicio: int = 2000, ano_fim: int = 2022) -> pd.DataFrame:
+                           parameters: List[str] = None,
+                           year_start: int = 2000,
+                           year_end:   int = 2022) -> pd.DataFrame:
         """
-        Dados climáticos da NASA POWER (resolução anual).
-        Default: Brasília, DF.
-        Parâmetros comuns: T2M (temperatura), PRECTOTCORR (chuva), ALLSKY_SFC_SW_DWN (radiação)
+        Fetch annual climate data from NASA POWER (no API key required).
+
+        Default coordinates: Brasília, DF, Brazil.
+        Common parameters:
+          T2M            — 2-metre air temperature (°C)
+          PRECTOTCORR    — corrected precipitation (mm/day)
+          ALLSKY_SFC_SW_DWN — all-sky insolation (W/m²)
+          RH2M           — relative humidity at 2 m (%)
         """
         if not _REQUESTS_OK:
-            raise RuntimeError("requests não disponível")
-        if parametros is None:
-            parametros = ["T2M", "PRECTOTCORR"]
-        params_str = ",".join(parametros)
+            raise RuntimeError("requests not available")
+        if parameters is None:
+            parameters = ["T2M", "PRECTOTCORR"]
+        params_str = ",".join(parameters)
         url = (f"https://power.larc.nasa.gov/api/temporal/annual/point"
                f"?parameters={params_str}&community=RE"
                f"&longitude={lon}&latitude={lat}"
-               f"&start={ano_inicio}&end={ano_fim}&format=JSON")
+               f"&start={year_start}&end={year_end}&format=JSON")
         resp = requests.get(url, timeout=20)
         resp.raise_for_status()
-        dados = resp.json()["properties"]["parameter"]
-        registros = []
-        anos = list(dados[parametros[0]].keys())
-        for ano in anos:
-            row = {"ano": int(ano)}
-            for p in parametros:
-                row[p] = dados[p].get(ano, np.nan)
-            registros.append(row)
-        return pd.DataFrame(registros).sort_values("ano").reset_index(drop=True)
+        data  = resp.json()["properties"]["parameter"]
+        years = list(data[parameters[0]].keys())
+        records = []
+        for year in years:
+            row = {"year": int(year)}
+            for p in parameters:
+                row[p] = data[p].get(year, np.nan)
+            records.append(row)
+        return pd.DataFrame(records).sort_values("year").reset_index(drop=True)
 
-    # ── IBGE SIDRA ──────────────────────────────────────────────────
+    # ── IBGE SIDRA (Brazilian national statistics) ───────────────────────
+
     def fetch_ibge_gdp(self) -> pd.DataFrame:
-        """PIB brasileiro anual (IBGE SIDRA tabela 1846)."""
+        """Fetch annual Brazilian GDP from IBGE SIDRA table 1846 (no key required)."""
         if not _REQUESTS_OK:
-            raise RuntimeError("requests não disponível")
-        url = "https://servicodados.ibge.gov.br/api/v3/agregados/1846/periodos/2000|2001|2002|2003|2004|2005|2006|2007|2008|2009|2010|2011|2012|2013|2014|2015|2016|2017|2018|2019|2020|2021|2022/variables/585?localidades=N1[all]"
+            raise RuntimeError("requests not available")
+        url = (
+            "https://servicodados.ibge.gov.br/api/v3/agregados/1846"
+            "/periodos/2000|2001|2002|2003|2004|2005|2006|2007|2008|2009"
+            "|2010|2011|2012|2013|2014|2015|2016|2017|2018|2019|2020|2021|2022"
+            "/variables/585?localidades=N1[all]"
+        )
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
-        dados = resp.json()
-        results = dados[0]["results"][0]["series"][0]["serie"]
-        registros = [{"ano": int(k), "pib_bilhoes": float(v)/1e9}
-                     for k, v in results.items() if v != "..."]
-        return pd.DataFrame(registros).sort_values("ano").reset_index(drop=True)
+        data    = resp.json()
+        series  = data[0]["results"][0]["series"][0]["serie"]
+        records = [
+            {"year": int(k), "gdp_billion_usd": float(v) / 1e9}
+            for k, v in series.items() if v != "..."
+        ]
+        return pd.DataFrame(records).sort_values("year").reset_index(drop=True)
 
-    # ── Fallback: dataset sintético ─────────────────────────────────
+    # ── Synthetic offline fallback ───────────────────────────────────────
+
     def generate_synthetic(self, n: int = 300, seed: int = 42) -> pd.DataFrame:
-        """Gera dataset sintético realista para testes offline."""
-        rng = np.random.default_rng(seed)
-        registros = []
-        for ano in range(2000, 2024):
+        """
+        Generate a realistic synthetic income dataset for offline testing.
+
+        Simulates n individual observations per year (2000–2023) with:
+          - education ('estudo'):      uniform in [4, 20] years
+          - experience ('experiencia'): uniform in [0, 30] years
+          - income ('renda'):           linear function + crisis shocks + noise
+
+        Column names use Portuguese identifiers ('estudo', 'experiencia',
+        'renda', 'ano') to remain compatible with existing test mappings.
+        """
+        rng     = np.random.default_rng(seed)
+        records = []
+        for year in range(2000, 2024):
             for _ in range(n // 24):
-                estudo = rng.uniform(4, 20)
-                exp    = rng.uniform(0, 30)
-                crise  = -2000 if ano in [2008, 2009, 2015, 2020] else 0
-                renda  = 800 + 500*estudo + 200*exp + rng.normal(0, 3000) + crise
-                registros.append({"ano": ano, "estudo": round(estudo, 1),
-                                  "experiencia": round(exp, 1),
-                                  "renda": max(500, round(renda, 2))})
-        df = pd.DataFrame(registros)
+                education  = rng.uniform(4, 20)
+                experience = rng.uniform(0, 30)
+                # Crisis years reduce income significantly
+                crisis = -2000 if year in [2008, 2009, 2015, 2020] else 0
+                income = (800 + 500*education + 200*experience
+                          + rng.normal(0, 3000) + crisis)
+                records.append({
+                    "ano":         year,
+                    "estudo":      round(education, 1),
+                    "experiencia": round(experience, 1),
+                    "renda":       max(500, round(income, 2)),
+                })
+        df = pd.DataFrame(records)
         df.attrs["source"] = "synthetic"
         return df
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  MÓDULO 7 — GERADOR DE DASHBOARD (matplotlib, sem plt.show())
+#  MODULE 7 — DASHBOARD GENERATOR (matplotlib, no plt.show())
 # ══════════════════════════════════════════════════════════════════════
 
-DARK  = "#0d0d0d"
-PANEL = "#1a1a1a"
-GRID  = "#2a2a2a"
-CORES = ["#00e5ff", "#76ff03", "#ff6d00", "#e040fb", "#ffea00", "#ff4081"]
+DARK    = "#0d0d0d"
+PANEL   = "#1a1a1a"
+GRID    = "#2a2a2a"
+COLOURS = ["#00e5ff", "#76ff03", "#ff6d00", "#e040fb", "#ffea00", "#ff4081"]
 
 
-def _ax(ax):
+def _style_ax(ax) -> None:
+    """Apply dark-theme styling to a matplotlib Axes object."""
     ax.set_facecolor(PANEL)
     ax.tick_params(colors="#888")
     for spine in ax.spines.values():
@@ -681,175 +858,212 @@ def _ax(ax):
 def generate_dashboard(
     results_sim:  List[SimulationResult],
     results_emp:  List[EmpiricalResult],
-    comparacao:      ComparisonResult,
+    comparison:   ComparisonResult,
     results_temp: List[TemporalResult],
 ) -> plt.Figure:
     """
-    Retorna uma figura matplotlib completa (sem plt.show()).
-    O Streamlit chama st.pyplot(fig).
+    Build and return a complete matplotlib Figure (no plt.show()).
+    Streamlit displays it with st.pyplot(fig).
     """
-    n = len(results_sim)
+    n   = len(results_sim)
     fig = plt.figure(figsize=(20, 5 + 5*n + 5 + 4 + 4), facecolor=DARK)
-    fig.suptitle("REPRODUTIBILIDADE — Dashboard Completo",
+    fig.suptitle("REPRODUCIBILITY — Complete Dashboard",
                  fontsize=15, color="white", fontweight="bold", y=1.005)
 
-    # ── Seção 1: Simulação ──────────────────────────────────────────
+    # ── Section 1: Simulation ──────────────────────────────────────────
     for i, res in enumerate(results_sim):
-        cor = CORES[i % len(CORES)]
-        arr = np.array(res.results_per_trial)
-        top = 0.97 - i * 0.16
-        bot = top - 0.14
-        gs  = gridspec.GridSpec(1, 3, figure=fig, top=top, bottom=bot,
-                                left=0.05, right=0.95, wspace=0.3)
+        colour = COLOURS[i % len(COLOURS)]
+        arr    = np.array(res.results_per_trial)
+        top    = 0.97 - i * 0.16
+        bot    = top - 0.14
+        gs     = gridspec.GridSpec(1, 3, figure=fig, top=top, bottom=bot,
+                                   left=0.05, right=0.95, wspace=0.3)
 
         ax1 = fig.add_subplot(gs[0])
-        ax1.plot(arr, color=cor, alpha=0.6, linewidth=0.8)
+        ax1.plot(arr, color=colour, alpha=0.6, linewidth=0.8)
         ax1.axhline(res.mean, color="white", linestyle="--", linewidth=1.2)
-        if not (np.isnan(res.confidence_interval_95[0]) or np.isnan(res.confidence_interval_95[1])):
+        if not (np.isnan(res.confidence_interval_95[0]) or
+                np.isnan(res.confidence_interval_95[1])):
             ax1.fill_between(range(len(arr)),
                              res.confidence_interval_95[0],
                              res.confidence_interval_95[1],
-                             color=cor, alpha=0.1)
-        _ax(ax1)
+                             color=colour, alpha=0.1)
+        _style_ax(ax1)
         ax1.set_title(f"{res.hypothesis_name}\nTrials", color="white", fontsize=9)
 
         ax2 = fig.add_subplot(gs[1])
-        ax2.hist(arr, bins=15, color=cor, alpha=0.8, edgecolor=DARK)
+        ax2.hist(arr, bins=15, color=colour, alpha=0.8, edgecolor=DARK)
         ax2.axvline(res.mean, color="white", linestyle="--", linewidth=1.2)
-        _ax(ax2)
-        ax2.set_title("Distribuição", color="white", fontsize=9)
+        _style_ax(ax2)
+        ax2.set_title("Distribution", color="white", fontsize=9)
 
         ax3 = fig.add_subplot(gs[2])
         ax3.set_facecolor(PANEL)
         ax3.axis("off")
         score = res.reproducibility_score
-        cor_s = ("#76ff03" if score >= 85 else "#ffea00" if score >= 60
+        col_s = ("#76ff03" if score >= 85 else "#ffea00" if score >= 60
                  else "#ff6d00" if score >= 35 else "#ff1744")
-        ax3.barh(0.5, score/100, height=0.2, color=cor_s, alpha=0.9, transform=ax3.transAxes)
-        ax3.barh(0.5, 1.0,       height=0.2, color=GRID,  alpha=0.7, transform=ax3.transAxes)
+        ax3.barh(0.5, score/100, height=0.2, color=col_s, alpha=0.9,
+                 transform=ax3.transAxes)
+        ax3.barh(0.5, 1.0,       height=0.2, color=GRID,  alpha=0.7,
+                 transform=ax3.transAxes)
         ax3.text(0.5, 0.80, f"{score:.0f}/100",  ha="center", color="white",
                  fontsize=16, fontweight="bold", transform=ax3.transAxes)
-        ax3.text(0.5, 0.28, res.classification,  ha="center", color=cor_s,
+        ax3.text(0.5, 0.28, res.classification,  ha="center", color=col_s,
                  fontsize=8, transform=ax3.transAxes)
-        ax3.text(0.5, 0.12, f"CV={res.coefficient_of_variation:.1f}%", ha="center",
-                 color="#888", fontsize=8, transform=ax3.transAxes)
+        ax3.text(0.5, 0.12, f"CV={res.coefficient_of_variation:.1f}%",
+                 ha="center", color="#888", fontsize=8, transform=ax3.transAxes)
         ax3.set_title("Score", color="white", fontsize=9)
 
     sep = 0.97 - n * 0.16
 
-    # ── Seção 2: Empírico ───────────────────────────────────────────
+    # ── Section 2: Empirical ───────────────────────────────────────────
     et, eb = sep - 0.03, sep - 0.17
-    fig.text(0.01, et + 0.005, "Módulo 2 — Dados Empíricos", color="#76ff03", fontsize=10, fontweight="bold")
-    gs_e = gridspec.GridSpec(1, 3, figure=fig, top=et-0.02, bottom=eb, left=0.05, right=0.95, wspace=0.3)
+    fig.text(0.01, et + 0.005, "Module 2 — Empirical Data",
+             color="#76ff03", fontsize=10, fontweight="bold")
+    gs_e = gridspec.GridSpec(1, 3, figure=fig, top=et-0.02, bottom=eb,
+                             left=0.05, right=0.95, wspace=0.3)
 
     ax_res = fig.add_subplot(gs_e[0:2])
-    _ax(ax_res)
-    ax_res.set_title("Distribuição dos Resíduos", color="white", fontsize=9)
+    _style_ax(ax_res)
+    ax_res.set_title("Residual Distribution", color="white", fontsize=9)
     for i, re_ in enumerate(results_emp):
-        ax_res.hist(re_.residuals, bins=20, alpha=0.6, color=CORES[i % len(CORES)],
-                    label=f"{re_.hypothesis_name[:20]} R²={re_.r_squared:.3f}", edgecolor=DARK)
+        ax_res.hist(re_.residuals, bins=20, alpha=0.6,
+                    color=COLOURS[i % len(COLOURS)],
+                    label=f"{re_.hypothesis_name[:20]} R²={re_.r_squared:.3f}",
+                    edgecolor=DARK)
     ax_res.axvline(0, color="white", linestyle="--", linewidth=1.2)
     ax_res.legend(fontsize=7, labelcolor="white", facecolor="#333")
 
     ax_r2 = fig.add_subplot(gs_e[2])
-    _ax(ax_r2)
+    _style_ax(ax_r2)
     names = [re_.hypothesis_name.split()[0] for re_ in results_emp]
     r2s   = [re_.r_squared for re_ in results_emp]
-    bars  = ax_r2.barh(names, r2s, color=[CORES[i % len(CORES)] for i in range(len(results_emp))], alpha=0.85)
+    bars  = ax_r2.barh(
+        names, r2s,
+        color=[COLOURS[i % len(COLOURS)] for i in range(len(results_emp))],
+        alpha=0.85,
+    )
     ax_r2.set_xlim(-0.1, 1.1)
     ax_r2.set_title("R²", color="white", fontsize=9)
     for bar, val in zip(bars, r2s):
         ax_r2.text(max(val + 0.02, 0.02), bar.get_y() + bar.get_height()/2,
                    f"{val:.3f}", va="center", color="white", fontsize=8)
 
-    # ── Seção 3: Comparação ─────────────────────────────────────────
+    # ── Section 3: Hypothesis comparison (Akaike weights) ─────────────
     ct, cb = eb - 0.04, eb - 0.14
-    fig.text(0.01, ct + 0.005, "Módulo 3 — Comparação (Peso de Akaike)", color="#ff6d00", fontsize=10, fontweight="bold")
+    fig.text(0.01, ct + 0.005, "Module 3 — Hypothesis Comparison (Akaike weight)",
+             color="#ff6d00", fontsize=10, fontweight="bold")
     ax_c = fig.add_axes([0.05, cb, 0.90, ct - cb - 0.01])
     ax_c.set_facecolor(PANEL)
     ax_c.tick_params(colors="#888")
     for spine in ax_c.spines.values():
         spine.set_edgecolor(GRID)
-    names_c = [r["name"].split()[0] for r in comparacao.ranking]
-    pesos_c = [r["akaike_weight"] * 100 for r in comparacao.ranking]
-    bars_c  = ax_c.bar(names_c, pesos_c,
-                       color=[CORES[i % len(CORES)] for i in range(len(comparacao.ranking))],
-                       alpha=0.85, edgecolor=DARK)
-    ax_c.set_ylabel("Probabilidade (%)", color="#888")
-    for bar, val in zip(bars_c, pesos_c):
+    names_c   = [r["name"].split()[0] for r in comparison.ranking]
+    weights_c = [r["akaike_weight"] * 100 for r in comparison.ranking]
+    bars_c    = ax_c.bar(
+        names_c, weights_c,
+        color=[COLOURS[i % len(COLOURS)] for i in range(len(comparison.ranking))],
+        alpha=0.85, edgecolor=DARK,
+    )
+    ax_c.set_ylabel("Probability (%)", color="#888")
+    for bar, val in zip(bars_c, weights_c):
         ax_c.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
                   f"{val:.1f}%", ha="center", color="white", fontsize=9)
     ax_c.tick_params(axis="x", colors="#aaa")
-    if pesos_c:
-        ax_c.text(0, max(pesos_c) * 1.12, "🏆", fontsize=12, ha="center")
+    if weights_c:
+        ax_c.text(0, max(weights_c) * 1.12, "🏆", fontsize=12, ha="center")
 
-    # ── Seção 4: Temporal ───────────────────────────────────────────
+    # ── Section 4: Temporal drift ─────────────────────────────────────
     tt, tb = cb - 0.04, cb - 0.13
-    fig.text(0.01, tt + 0.005, "Módulo 4 — Dimensão Temporal (deriva?)", color="#e040fb", fontsize=10, fontweight="bold")
+    fig.text(0.01, tt + 0.005, "Module 4 — Temporal Dimension (drift?)",
+             color="#e040fb", fontsize=10, fontweight="bold")
     n_temp = max(1, len(results_temp))
     gs_t   = gridspec.GridSpec(1, n_temp, figure=fig, top=tt-0.02, bottom=tb,
                                left=0.05, right=0.95, wspace=0.35)
     for i, rt in enumerate(results_temp):
-        cor = CORES[i % len(CORES)]
-        ax  = fig.add_subplot(gs_t[i])
-        _ax(ax)
-        sc  = rt.scores_per_window
-        x   = np.arange(len(sc))
-        ax.plot(x, sc, "o-", color=cor, linewidth=2, markersize=5)
-        ax.fill_between(x, sc, alpha=0.12, color=cor)
+        colour = COLOURS[i % len(COLOURS)]
+        ax     = fig.add_subplot(gs_t[i])
+        _style_ax(ax)
+        sc = rt.scores_per_window
+        x  = np.arange(len(sc))
+        ax.plot(x, sc, "o-", color=colour, linewidth=2, markersize=5)
+        ax.fill_between(x, sc, alpha=0.12, color=colour)
         if len(sc) >= 2:
             sl, inter = stats.linregress(x, sc)[:2]
-            cor_t = "#ff4081" if rt.drift_detected else "#76ff03"
-            ax.plot(x, sl * x + inter, "--", color=cor_t, linewidth=1.5)
+            col_t = "#ff4081" if rt.drift_detected else "#76ff03"
+            ax.plot(x, sl * x + inter, "--", color=col_t, linewidth=1.5)
         ax.set_ylim(0, 105)
         ax.set_xticks(x)
         ax.set_xticklabels(rt.windows, fontsize=6, color="#aaa", rotation=10)
-        status = "⚠️ deriva" if rt.drift_detected else "✅ estável"
-        ax.set_title(f"{rt.hypothesis_name[:22]}\n{status}", color="white", fontsize=8)
+        status = "⚠️ drift" if rt.drift_detected else "✅ stable"
+        ax.set_title(f"{rt.hypothesis_name[:22]}\n{status}",
+                     color="white", fontsize=8)
 
     fig.tight_layout(rect=[0, 0, 1, 0.995])
     return fig
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  PIPELINE COMPLETO (chamado pelo app.py)
+#  FULL PIPELINE (called by app.py)
 # ══════════════════════════════════════════════════════════════════════
 
 def run_pipeline(
-    hypothesiss:      List[Hypothesis],
-    df:             pd.DataFrame,
-    target_column:    str,
-    mappings:    List[Dict[str, str]],
+    hypotheses:    List[Hypothesis],
+    df:            pd.DataFrame,
+    target_column: str,
+    mappings:      List[Dict[str, str]],
     time_column:   Optional[str] = None,
-    n_trials:       int = 60,
-    sample_size:    int = 200,
-    n_windows:      int = 5,
-    seed:           int = 42,
+    n_trials:      int = 60,
+    sample_size:   int = 200,
+    n_windows:     int = 5,
+    seed:          int = 42,
 ) -> Dict[str, Any]:
     """
-    Roda todos os módulos e retorna um dict com todos os results.
-    O app.py usa esse dict para montar a UI.
-    """
-    motor      = ReproducibilityEngine(n_trials, sample_size, seed)
-    testador   = EmpiricalTester()
-    comparador = HypothesisComparator()
-    analisador = TemporalAnalyser(n_windows)
+    Run all analytical modules and return a consolidated results dictionary.
 
-    res_sim  = [motor.test(h) for h in hypothesiss]
-    res_emp  = [testador.test(h, df, target_column, mapa)
-                for h, mapa in zip(hypothesiss, mappings)]
-    comp     = comparador.compare(res_emp, res_sim)
+    Parameters
+    ----------
+    hypotheses    : list of Hypothesis objects to evaluate
+    df            : empirical dataset as a pandas DataFrame
+    target_column : name of the dependent variable column
+    mappings      : list of dicts mapping hypothesis symbols to df columns
+    time_column   : column for temporal analysis (None to skip)
+    n_trials      : number of Monte Carlo simulation trials
+    sample_size   : samples per trial
+    n_windows     : number of temporal windows
+    seed          : random seed for reproducibility
+
+    Returns
+    -------
+    {
+        "simulation"  : List[SimulationResult],
+        "empirical"   : List[EmpiricalResult],
+        "comparison"  : ComparisonResult,
+        "temporal"    : List[TemporalResult],
+        "figure"      : matplotlib.figure.Figure,
+    }
+    """
+    engine     = ReproducibilityEngine(n_trials, sample_size, seed)
+    tester     = EmpiricalTester()
+    comparator = HypothesisComparator()
+    analyser   = TemporalAnalyser(n_windows)
+
+    res_sim  = [engine.test(h) for h in hypotheses]
+    res_emp  = [tester.test(h, df, target_column, mapa)
+                for h, mapa in zip(hypotheses, mappings)]
+    comp     = comparator.compare(res_emp, res_sim)
     res_temp = []
     if time_column:
-        for h, mapa in zip(hypothesiss, mappings):
-            res_temp.append(analisador.analyse(h, df, time_column, target_column, mapa))
+        for h, mapa in zip(hypotheses, mappings):
+            res_temp.append(analyser.analyse(h, df, time_column, target_column, mapa))
 
     fig = generate_dashboard(res_sim, res_emp, comp, res_temp)
 
     return {
         "simulation":  res_sim,
         "empirical":   res_emp,
-        "comparison": comp,
-        "temporal":   res_temp,
-        "figure":     fig,
+        "comparison":  comp,
+        "temporal":    res_temp,
+        "figure":      fig,
     }

@@ -1,11 +1,10 @@
 """
-app.py — Interface Streamlit do sistema Reprodutibilidade
-─────────────────────────────────────────────────────────
-Execute com:  streamlit run app.py
+app.py — Streamlit web interface for the Reproducibility system
+───────────────────────────────────────────────────────────────
+Run with:  streamlit run app.py
 """
 
 import io
-import json
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -23,11 +22,11 @@ from reproducibility_core import (
 )
 
 # ─────────────────────────────────────────────────────────────────────
-#  CONFIGURAÇÃO DA PÁGINA
+#  PAGE CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Reprodutibilidade",
+    page_title="Reproducibility",
     page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -46,17 +45,17 @@ st.markdown("""
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  ESTADO DA SESSÃO
+#  SESSION STATE
 # ─────────────────────────────────────────────────────────────────────
 
 def _init_state():
     defaults = {
-        "hipoteses":    [],
-        "df":           None,
-        "target_column":  None,
-        "mappings":  [],
-        "resultados":   None,
-        "log_nlp":      [],
+        "hypotheses": [],
+        "df":          None,
+        "target_column": None,
+        "mappings":    [],
+        "results":     None,
+        "nlp_log":     [],
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -70,459 +69,486 @@ _init_state()
 # ─────────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.markdown("## 🔬 Reprodutibilidade")
-    st.markdown("Teste hipóteses científicas contra dados reais.")
+    st.markdown("## 🔬 Reproducibility")
+    st.markdown("Test scientific hypotheses against real data.")
     st.divider()
 
-    # ── Configuração do Tradutor ─────────────────────────────────────
-    st.markdown("### Módulo 1 — Tradutor de Hipóteses")
-    with st.expander("Configurar LLM (opcional)", expanded=False):
+    # ── Translator configuration ─────────────────────────────────────
+    st.markdown("### Module 1 — Hypothesis Translator")
+    with st.expander("Configure LLM (optional)", expanded=False):
         groq_key = st.text_input(
-            "Chave Groq (gratuita)",
+            "Groq API key (free)",
             type="password",
-            help="Cadastro gratuito em console.groq.com — sem cartão de crédito",
+            help="Free account at console.groq.com — no credit card required",
             placeholder="gsk_...",
         )
         groq_modelo = st.selectbox(
-            "Modelo Groq",
+            "Groq model",
             ["llama-3.3-70b-versatile", "llama-3.1-8b-instant",
              "mixtral-8x7b-32768", "gemma2-9b-it"],
         )
         ollama_model = st.text_input(
-            "Modelo Ollama (local)",
+            "Ollama model (local)",
             value="llama3.2",
-            help="Instale em ollama.ai e execute: ollama pull llama3.2",
+            help="Install at ollama.ai then run: ollama pull llama3.2",
         )
 
-    tradutor = OpenTranslator(
+    translator = OpenTranslator(
         groq_key=groq_key or None,
         groq_modelo=groq_modelo,
         ollama_model=ollama_model,
     )
-    status = tradutor.status()
-    for camada, s in status.items():
-        cor = "status-ok" if "✅" in s else "status-warn"
-        st.markdown(f'<span class="{cor}">{s}</span><br><small style="color:#666">{camada}</small>',
-                    unsafe_allow_html=True)
+    status = translator.status()
+    for layer, s in status.items():
+        css_class = "status-ok" if "✅" in s else "status-warn"
+        st.markdown(
+            f'<span class="{css_class}">{s}</span>'
+            f'<br><small style="color:#666">{layer}</small>',
+            unsafe_allow_html=True,
+        )
 
     st.divider()
 
-    # ── Parâmetros ───────────────────────────────────────────────────
-    st.markdown("### ⚙️ Parâmetros")
-    n_trials    = st.slider("Trials de simulação", 20, 200, 60, 10)
-    sample_size = st.slider("Amostras por trial",  50, 500, 200, 50)
-    n_windows   = st.slider("Janelas temporais",    3,  10,   5,  1)
-    seed        = st.number_input("Seed aleatório", value=42, step=1)
+    # ── Simulation parameters ────────────────────────────────────────
+    st.markdown("### ⚙️ Parameters")
+    n_trials    = st.slider("Simulation trials",  20, 200, 60,  10)
+    sample_size = st.slider("Samples per trial",  50, 500, 200, 50)
+    n_windows   = st.slider("Temporal windows",    3,  10,   5,  1)
+    seed        = st.number_input("Random seed", value=42, step=1)
 
     st.divider()
     st.markdown("""
     <small style="color:#555">
-    Ciência Aberta — sem APIs pagas.<br>
-    <a href="https://console.groq.com" target="_blank">Groq (gratuito)</a> ·
+    Open Science — no paid APIs.<br>
+    <a href="https://console.groq.com" target="_blank">Groq (free)</a> ·
     <a href="https://ollama.ai" target="_blank">Ollama (local)</a>
     </small>
     """, unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  CONTEÚDO PRINCIPAL
+#  MAIN CONTENT
 # ─────────────────────────────────────────────────────────────────────
 
-st.markdown('<div class="main-title">🔬 Reprodutibilidade</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">🔬 Reproducibility</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Se os padrões da realidade são consistentes, '
-    'uma hipótese verdadeira deve ser reproduzível.</div>',
+    '<div class="sub-title">'
+    'If the patterns of reality are consistent, a true hypothesis must be reproducible.'
+    '</div>',
     unsafe_allow_html=True,
 )
 
-tab1, tab2, tab3 = st.tabs(["📝 Hipóteses", "📊 Dados", "🚀 Executar & Resultados"])
+tab1, tab2, tab3 = st.tabs(["📝 Hypotheses", "📊 Data", "🚀 Run & Results"])
 
 
 # ════════════════════════════════════════════════════════════════════
-#  TAB 1 — HIPÓTESES
+#  TAB 1 — HYPOTHESES
 # ════════════════════════════════════════════════════════════════════
 
 with tab1:
-    st.markdown("### Defina suas hipóteses em linguagem natural")
+    st.markdown("### Define your hypotheses in natural language")
     st.markdown(
-        "Escreva como um cientista escreveria num caderno de pesquisa. "
-        "O sistema converte automaticamente para função matemática."
+        "Write as a scientist would in a research notebook. "
+        "The system automatically converts the text into a mathematical function."
     )
 
     col_input, col_info = st.columns([2, 1])
 
     with col_input:
-        texto_hipotese = st.text_area(
-            "Hipótese",
+        hypothesis_text = st.text_area(
+            "Hypothesis",
             placeholder=(
-                "Exemplos:\n"
-                "• A renda cresce linearmente com os anos de estudo e experiência\n"
-                "• A população cresce exponencialmente com a taxa de reprodução\n"
-                "• A temperatura de um gás cresce proporcionalmente à pressão\n"
-                "• O PIB per capita aumenta com o acesso à educação"
+                "Examples:\n"
+                "• Income grows linearly with years of education and experience\n"
+                "• Population grows exponentially with the reproduction rate\n"
+                "• Temperature of a gas increases proportionally with pressure\n"
+                "• GDP per capita increases with access to education"
             ),
             height=120,
         )
 
         col_a, col_b = st.columns(2)
         with col_a:
-            btn_traduzir = st.button("🔄 Traduzir hipótese", type="primary", use_container_width=True)
+            btn_translate = st.button("🔄 Translate hypothesis", type="primary",
+                                      use_container_width=True)
         with col_b:
-            btn_limpar   = st.button("🗑 Limpar lista", use_container_width=True)
+            btn_clear = st.button("🗑 Clear list", use_container_width=True)
 
-        if btn_limpar:
-            st.session_state.hipoteses = []
-            st.session_state.mappings = []
+        if btn_clear:
+            st.session_state.hypotheses = []
+            st.session_state.mappings   = []
             st.rerun()
 
-        if btn_traduzir and texto_hipotese.strip():
+        if btn_translate and hypothesis_text.strip():
             log = []
-            with st.spinner("Traduzindo..."):
-                h = tradutor.traduzir(texto_hipotese.strip(), log)
+            with st.spinner("Translating..."):
+                h = translator.translate(hypothesis_text.strip(), log)
             for msg in log:
                 st.info(msg)
-            st.session_state.hipoteses.append(h)
+            st.session_state.hypotheses.append(h)
             st.session_state.mappings.append({})
-            st.success(f"✅ Hipótese adicionada: **{h.nome}**")
+            st.success(f"✅ Hypothesis added: **{h.name}**")
 
     with col_info:
-        st.markdown("**Como funciona:**")
+        st.markdown("**How it works:**")
         st.markdown("""
-        1. Escreve em português ou inglês
-        2. O tradutor identifica variáveis e relação matemática
-        3. Gera código Python automaticamente
-        4. Você pode ajustar manualmente se quiser
+        1. Write in English or Portuguese
+        2. The translator identifies variables and the mathematical relationship
+        3. Generates Python code automatically
+        4. You can adjust the mapping manually if needed
         """)
-        st.markdown("**Relações suportadas:**")
-        st.markdown("Linear · Inversa · Quadrática · Cúbica · Raiz · Exponencial · Logarítmica")
+        st.markdown("**Supported relationships:**")
+        st.markdown("Linear · Inverse · Quadratic · Cubic · Square root · "
+                    "Exponential · Logarithmic")
 
-    # Lista de hipóteses adicionadas
-    if st.session_state.hipoteses:
+    # ── List of added hypotheses ─────────────────────────────────────
+    if st.session_state.hypotheses:
         st.divider()
-        st.markdown(f"### Hipóteses ({len(st.session_state.hipoteses)})")
+        st.markdown(f"### Hypotheses ({len(st.session_state.hypotheses)})")
 
-        for idx, h in enumerate(st.session_state.hipoteses):
-            with st.expander(f"**{idx+1}. {h.nome}**  `{h.origem}`", expanded=True):
+        for idx, h in enumerate(st.session_state.hypotheses):
+            with st.expander(f"**{idx+1}. {h.name}**  `{h.origin}`", expanded=True):
                 col1, col2 = st.columns([3, 1])
                 with col1:
-                    st.markdown(f"*{h.descricao}*")
-                    if h.predicao:
-                        st.markdown(f"**Predição:** {h.predicao}")
-                    st.markdown("**Variáveis:**")
-                    for v in h.variaveis:
-                        st.markdown(f"- `{v.nome}` ∈ [{v.minimo}, {v.maximo}] — {v.descricao}")
-                    if h.codigo_gerado:
-                        st.code(h.codigo_gerado, language="python")
+                    st.markdown(f"*{h.description}*")
+                    if h.prediction:
+                        st.markdown(f"**Prediction:** {h.prediction}")
+                    st.markdown("**Variables:**")
+                    for v in h.variables:
+                        st.markdown(
+                            f"- `{v.name}` ∈ [{v.minimum}, {v.maximum}] — {v.description}"
+                        )
+                    if h.generated_code:
+                        st.code(h.generated_code, language="python")
                 with col2:
-                    if st.button("🗑 Remover", key=f"rm_{idx}"):
-                        st.session_state.hipoteses.pop(idx)
+                    if st.button("🗑 Remove", key=f"rm_{idx}"):
+                        st.session_state.hypotheses.pop(idx)
                         st.session_state.mappings.pop(idx)
                         st.rerun()
 
 
 # ════════════════════════════════════════════════════════════════════
-#  TAB 2 — DADOS
+#  TAB 2 — DATA
 # ════════════════════════════════════════════════════════════════════
 
 with tab2:
-    st.markdown("### Fonte de dados")
+    st.markdown("### Data source")
 
-    fonte = st.radio(
-        "Escolha a fonte:",
-        ["📂 Upload CSV/Excel", "🌐 World Bank (API aberta)",
-         "🛰 NASA POWER (clima)", "🇧🇷 IBGE (PIB Brasil)", "🎲 Dataset sintético"],
+    source = st.radio(
+        "Choose source:",
+        ["📂 Upload CSV/Excel", "🌐 World Bank (open API)",
+         "🛰 NASA POWER (climate)", "🇧🇷 IBGE (Brazilian GDP)", "🎲 Synthetic dataset"],
         horizontal=False,
     )
 
-    buscador = DataFetcher()
+    fetcher = DataFetcher()
 
-    # ── Upload ──────────────────────────────────────────────────────
-    if fonte == "📂 Upload CSV/Excel":
-        arquivo = st.file_uploader("Selecione o arquivo", type=["csv", "xlsx", "xls"])
-        if arquivo:
+    # ── Upload ───────────────────────────────────────────────────────
+    if source == "📂 Upload CSV/Excel":
+        uploaded = st.file_uploader("Select file", type=["csv", "xlsx", "xls"])
+        if uploaded:
             try:
-                if arquivo.name.endswith(".csv"):
-                    sep = st.selectbox("Separador", [",", ";", "\t", "|"], index=0)
-                    df = pd.read_csv(arquivo, sep=sep)
+                if uploaded.name.endswith(".csv"):
+                    sep = st.selectbox("Separator", [",", ";", "\t", "|"], index=0)
+                    df  = pd.read_csv(uploaded, sep=sep)
                 else:
-                    df = pd.read_excel(arquivo)
+                    df = pd.read_excel(uploaded)
                 st.session_state.df = df
-                st.success(f"✅ {len(df)} linhas × {len(df.columns)} colunas carregadas")
+                st.success(f"✅ {len(df)} rows × {len(df.columns)} columns loaded")
             except Exception as e:
-                st.error(f"Erro ao ler arquivo: {e}")
+                st.error(f"Error reading file: {e}")
 
-    # ── World Bank ──────────────────────────────────────────────────
-    elif fonte == "🌐 World Bank (API aberta)":
-        st.markdown("Dados abertos do Banco Mundial — sem chave de API.")
+    # ── World Bank ───────────────────────────────────────────────────
+    elif source == "🌐 World Bank (open API)":
+        st.markdown("World Bank Open Data — no API key required.")
         col1, col2, col3 = st.columns(3)
         with col1:
-            indicadores_disp = list(buscador.listar_indicadores_worldbank().keys())
-            ind_y = st.selectbox("Variável dependente (y)", indicadores_disp, index=0)
-            ind_x = st.selectbox("Variável independente (x)", indicadores_disp, index=1)
+            available_indicators = list(fetcher.list_worldbank_indicators().keys())
+            ind_y = st.selectbox("Dependent variable (y)",   available_indicators, index=0)
+            ind_x = st.selectbox("Independent variable (x)", available_indicators, index=1)
         with col2:
-            pais_opcoes = {"Brasil": "BR", "EUA": "US", "Alemanha": "DE",
-                          "China": "CN", "Índia": "IN", "Todos": "all"}
-            pais_label  = st.selectbox("País", list(pais_opcoes.keys()), index=0)
-            pais_codigo = pais_opcoes[pais_label]
+            country_options = {
+                "Brazil": "BR", "USA": "US", "Germany": "DE",
+                "China": "CN", "India": "IN", "All": "all",
+            }
+            country_label = st.selectbox("Country", list(country_options.keys()), index=0)
+            country_code  = country_options[country_label]
         with col3:
-            ano_ini = st.number_input("Ano início", 1990, 2022, 2000)
-            ano_fim = st.number_input("Ano fim",    1990, 2023, 2022)
+            year_start = st.number_input("Start year", 1990, 2022, 2000)
+            year_end   = st.number_input("End year",   1990, 2023, 2022)
 
-        if st.button("🌐 Buscar dados", type="primary"):
-            with st.spinner("Consultando World Bank API..."):
+        if st.button("🌐 Fetch data", type="primary"):
+            with st.spinner("Querying World Bank API..."):
                 try:
-                    if pais_label == "Todos":
-                        df = buscador.buscar_worldbank_multiplos_paises(
-                            [ind_y, ind_x], ano_inicio=int(ano_ini), ano_fim=int(ano_fim))
+                    if country_label == "All":
+                        df = fetcher.fetch_worldbank_multiple_countries(
+                            [ind_y, ind_x],
+                            year_start=int(year_start),
+                            year_end=int(year_end),
+                        )
                         df = df.rename(columns={ind_y: "y", ind_x: "x"})
                     else:
-                        df_y = buscador.buscar_worldbank(ind_y, pais_codigo, int(ano_ini), int(ano_fim))
-                        df_x = buscador.buscar_worldbank(ind_x, pais_codigo, int(ano_ini), int(ano_fim))
-                        df = pd.merge(df_y.rename(columns={"valor": "y"})[["ano", "y"]],
-                                      df_x.rename(columns={"valor": "x"})[["ano", "x"]],
-                                      on="ano").dropna()
+                        df_y = fetcher.fetch_worldbank(ind_y, country_code,
+                                                       int(year_start), int(year_end))
+                        df_x = fetcher.fetch_worldbank(ind_x, country_code,
+                                                       int(year_start), int(year_end))
+                        df = pd.merge(
+                            df_y.rename(columns={"value": "y"})[["year", "y"]],
+                            df_x.rename(columns={"value": "x"})[["year", "x"]],
+                            on="year",
+                        ).dropna()
                     st.session_state.df = df
-                    st.success(f"✅ {len(df)} observações carregadas — World Bank")
+                    st.success(f"✅ {len(df)} observations loaded — World Bank")
                 except Exception as e:
-                    st.error(f"Erro ao buscar dados: {e}\n\nVerifique sua conexão com a internet.")
+                    st.error(f"Error fetching data: {e}\n\nCheck your internet connection.")
 
-    # ── NASA POWER ──────────────────────────────────────────────────
-    elif fonte == "🛰 NASA POWER (clima)":
-        st.markdown("Dados climáticos da NASA — sem chave de API.")
+    # ── NASA POWER ───────────────────────────────────────────────────
+    elif source == "🛰 NASA POWER (climate)":
+        st.markdown("NASA climate data — no API key required.")
         col1, col2 = st.columns(2)
         with col1:
             lat = st.number_input("Latitude",  value=-15.78, step=0.1)
             lon = st.number_input("Longitude", value=-47.93, step=0.1)
-            st.caption("Ex: Brasília = -15.78, -47.93 | São Paulo = -23.55, -46.63")
+            st.caption("e.g. Brasília = -15.78, -47.93 | São Paulo = -23.55, -46.63")
         with col2:
-            params_disp = {"Temperatura (°C)": "T2M", "Precipitação (mm/dia)": "PRECTOTCORR",
-                           "Radiação solar (W/m²)": "ALLSKY_SFC_SW_DWN",
-                           "Umidade relativa (%)": "RH2M"}
-            param_y = st.selectbox("Variável dependente", list(params_disp.keys()), 0)
-            param_x = st.selectbox("Variável independente", list(params_disp.keys()), 1)
-            ano_ini_n = st.number_input("Ano início", 1990, 2022, 2000, key="nasa_ini")
-            ano_fim_n = st.number_input("Ano fim",    1990, 2022, 2020, key="nasa_fim")
+            params_available = {
+                "Temperature (°C)":        "T2M",
+                "Precipitation (mm/day)":  "PRECTOTCORR",
+                "Solar radiation (W/m²)":  "ALLSKY_SFC_SW_DWN",
+                "Relative humidity (%)":   "RH2M",
+            }
+            param_y      = st.selectbox("Dependent variable",   list(params_available.keys()), 0)
+            param_x      = st.selectbox("Independent variable", list(params_available.keys()), 1)
+            year_start_n = st.number_input("Start year", 1990, 2022, 2000, key="nasa_start")
+            year_end_n   = st.number_input("End year",   1990, 2022, 2020, key="nasa_end")
 
-        if st.button("🛰 Buscar dados climáticos", type="primary"):
-            with st.spinner("Consultando NASA POWER..."):
+        if st.button("🛰 Fetch climate data", type="primary"):
+            with st.spinner("Querying NASA POWER..."):
                 try:
-                    parametros = list(set([params_disp[param_y], params_disp[param_x]]))
-                    df = buscador.buscar_nasa_clima(lat, lon, parametros,
-                                                   int(ano_ini_n), int(ano_fim_n))
-                    df = df.rename(columns={params_disp[param_y]: "y",
-                                            params_disp[param_x]: "x"})
+                    parameters = list(set([params_available[param_y],
+                                           params_available[param_x]]))
+                    df = fetcher.fetch_nasa_climate(lat, lon, parameters,
+                                                    int(year_start_n), int(year_end_n))
+                    df = df.rename(columns={params_available[param_y]: "y",
+                                            params_available[param_x]: "x"})
                     st.session_state.df = df
-                    st.success(f"✅ {len(df)} observações — NASA POWER")
+                    st.success(f"✅ {len(df)} observations — NASA POWER")
                 except Exception as e:
-                    st.error(f"Erro: {e}")
+                    st.error(f"Error: {e}")
 
-    # ── IBGE ────────────────────────────────────────────────────────
-    elif fonte == "🇧🇷 IBGE (PIB Brasil)":
-        st.markdown("PIB brasileiro anual do IBGE SIDRA — sem chave de API.")
-        if st.button("🇧🇷 Buscar PIB Brasil", type="primary"):
-            with st.spinner("Consultando IBGE SIDRA..."):
+    # ── IBGE ─────────────────────────────────────────────────────────
+    elif source == "🇧🇷 IBGE (Brazilian GDP)":
+        st.markdown("Annual Brazilian GDP from IBGE SIDRA — no API key required.")
+        if st.button("🇧🇷 Fetch Brazilian GDP", type="primary"):
+            with st.spinner("Querying IBGE SIDRA..."):
                 try:
-                    df = buscador.buscar_ibge_pib()
-                    df["ano_idx"] = range(len(df))
+                    df = fetcher.fetch_ibge_gdp()
+                    df["year_index"] = range(len(df))
                     st.session_state.df = df
-                    st.success(f"✅ {len(df)} anos de PIB carregados — IBGE")
+                    st.success(f"✅ {len(df)} years of GDP loaded — IBGE")
                 except Exception as e:
-                    st.error(f"Erro: {e}")
+                    st.error(f"Error: {e}")
 
-    # ── Sintético ───────────────────────────────────────────────────
+    # ── Synthetic ────────────────────────────────────────────────────
     else:
-        st.markdown("Dataset sintético realista (offline, sem internet).")
+        st.markdown("Realistic synthetic dataset (offline, no internet required).")
         col1, col2 = st.columns(2)
         with col1:
-            n_sint = st.slider("Observações", 100, 1000, 300, 50)
-            seed_s = st.number_input("Seed", value=42, step=1, key="seed_sint")
+            n_synth  = st.slider("Observations", 100, 1000, 300, 50)
+            seed_syn = st.number_input("Seed", value=42, step=1, key="seed_synth")
         with col2:
             st.markdown("""
-            **Variáveis geradas:**
-            - `ano` (2000–2023)
-            - `estudo` (anos de educação)
-            - `experiencia` (anos de trabalho)
-            - `renda` (com componente aleatório realista)
+            **Generated variables:**
+            - `ano` — year (2000–2023)
+            - `estudo` — years of education
+            - `experiencia` — years of work experience
+            - `renda` — income (with realistic random component)
             """)
-        if st.button("🎲 Gerar dataset", type="primary"):
-            df = buscador.gerar_sintetico(n_sint, int(seed_s))
+        if st.button("🎲 Generate dataset", type="primary"):
+            df = fetcher.generate_synthetic(n_synth, int(seed_syn))
             st.session_state.df = df
-            st.success(f"✅ {len(df)} observações geradas")
+            st.success(f"✅ {len(df)} observations generated")
 
-    # ── Preview dos dados ───────────────────────────────────────────
+    # ── Data preview ─────────────────────────────────────────────────
     if st.session_state.df is not None:
         df = st.session_state.df
         st.divider()
-        st.markdown("### Pré-visualização")
+        st.markdown("### Preview")
         col1, col2, col3 = st.columns(3)
-        col1.metric("Linhas",   len(df))
-        col2.metric("Colunas",  len(df.columns))
-        col3.metric("Fonte",    df.attrs.get("fonte", "—"))
+        col1.metric("Rows",    len(df))
+        col2.metric("Columns", len(df.columns))
+        col3.metric("Source",  df.attrs.get("source", "—"))
         st.dataframe(df.head(20), use_container_width=True)
-        st.markdown("**Estatísticas descritivas:**")
+        st.markdown("**Descriptive statistics:**")
         st.dataframe(df.describe().round(3), use_container_width=True)
 
 
 # ════════════════════════════════════════════════════════════════════
-#  TAB 3 — EXECUTAR
+#  TAB 3 — RUN & RESULTS
 # ════════════════════════════════════════════════════════════════════
 
 with tab3:
-    st.markdown("### Pipeline completo")
+    st.markdown("### Full pipeline")
 
-    if not st.session_state.hipoteses:
-        st.warning("⚠️ Adicione pelo menos uma hipótese na aba **Hipóteses**.")
+    if not st.session_state.hypotheses:
+        st.warning("⚠️ Add at least one hypothesis in the **Hypotheses** tab.")
     elif st.session_state.df is None:
-        st.warning("⚠️ Carregue um dataset na aba **Dados**.")
+        st.warning("⚠️ Load a dataset in the **Data** tab.")
     else:
         df = st.session_state.df
 
-        st.markdown("#### Configurar mapping variáveis → colunas")
+        st.markdown("#### Configure variable → column mapping")
         st.markdown(
-            "Para cada hipótese, informe qual coluna do dataset corresponde a cada variável."
+            "For each hypothesis, specify which dataset column corresponds to each variable."
         )
 
-        colunas_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-        mappings = []
-        target_column = st.selectbox("Coluna alvo (variável dependente y)", colunas_num)
+        numeric_columns = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        mappings        = []
+        target_column   = st.selectbox("Target column (dependent variable y)",
+                                        numeric_columns)
 
-        colunas_tempo_disp = ["(nenhuma)"] + [c for c in df.columns
-                                              if "ano" in c.lower() or "year" in c.lower()
-                                              or "data" in c.lower() or "date" in c.lower()]
-        time_column = st.selectbox("Coluna de tempo (para análise temporal)", colunas_tempo_disp)
-        time_column = None if time_column == "(nenhuma)" else time_column
+        time_options = ["(none)"] + [
+            c for c in df.columns
+            if any(kw in c.lower() for kw in ["ano", "year", "data", "date"])
+        ]
+        time_column = st.selectbox("Time column (for temporal analysis)", time_options)
+        time_column = None if time_column == "(none)" else time_column
 
-        valido = True
-        for idx, h in enumerate(st.session_state.hipoteses):
-            with st.expander(f"**{h.nome}** — mapping", expanded=True):
+        valid = True
+        for idx, h in enumerate(st.session_state.hypotheses):
+            with st.expander(f"**{h.name}** — mapping", expanded=True):
                 mapa = {}
-                for v in h.variaveis:
-                    col_escolhida = st.selectbox(
-                        f"`{v.nome}` ({v.descricao})",
-                        colunas_num,
-                        key=f"map_{idx}_{v.nome}",
+                for v in h.variables:
+                    chosen_col = st.selectbox(
+                        f"`{v.name}` ({v.description})",
+                        numeric_columns,
+                        key=f"map_{idx}_{v.name}",
                     )
-                    mapa[v.nome] = col_escolhida
+                    mapa[v.name] = chosen_col
                 mappings.append(mapa)
 
         st.divider()
-        btn_executar = st.button("🚀 Executar análise completa", type="primary",
-                                 use_container_width=True, disabled=not valido)
+        btn_run = st.button("🚀 Run full analysis", type="primary",
+                            use_container_width=True, disabled=not valid)
 
-        if btn_executar:
-            progress = st.progress(0, text="Iniciando...")
+        if btn_run:
+            progress   = st.progress(0, text="Starting...")
             status_txt = st.empty()
 
             try:
-                status_txt.text("Módulo 2 — Simulação de reprodutibilidade...")
+                status_txt.text("Module 2 — Monte Carlo reproducibility simulation...")
                 progress.progress(20)
 
-                status_txt.text("Módulo 3 — Teste com dados empíricos...")
+                status_txt.text("Module 3 — Empirical data test...")
                 progress.progress(40)
 
-                status_txt.text("Módulo 4 — Comparando hipóteses...")
+                status_txt.text("Module 4 — Comparing hypotheses...")
                 progress.progress(60)
 
-                status_txt.text("Módulo 5 — Análise temporal...")
+                status_txt.text("Module 5 — Temporal analysis...")
                 progress.progress(80)
 
-                resultados = run_pipeline(
-                    hipoteses    = st.session_state.hipoteses,
-                    df           = df,
-                    target_column  = target_column,
-                    mappings  = mappings,
-                    time_column = time_column,
-                    n_trials     = n_trials,
-                    sample_size  = sample_size,
-                    n_windows    = n_windows,
-                    seed         = int(seed),
+                results = run_pipeline(
+                    hypotheses    = st.session_state.hypotheses,
+                    df            = df,
+                    target_column = target_column,
+                    mappings      = mappings,
+                    time_column   = time_column,
+                    n_trials      = n_trials,
+                    sample_size   = sample_size,
+                    n_windows     = n_windows,
+                    seed          = int(seed),
                 )
-                st.session_state.resultados = resultados
+                st.session_state.results = results
 
-                status_txt.text("Gerando dashboard...")
+                status_txt.text("Generating dashboard...")
                 progress.progress(95)
-                progress.progress(100, text="Concluído!")
+                progress.progress(100, text="Done!")
 
             except Exception as e:
-                st.error(f"Erro durante a análise: {e}")
+                st.error(f"Error during analysis: {e}")
                 st.exception(e)
 
-        # ── Exibição dos resultados ──────────────────────────────────
-        if st.session_state.resultados:
-            res = st.session_state.resultados
+        # ── Results display ──────────────────────────────────────────
+        if st.session_state.results:
+            res = st.session_state.results
             st.divider()
 
-            # Métricas rápidas
-            vencedor = res["comparacao"].vencedor
+            # Quick metrics
+            winner = res["comparison"].winner
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("🏆 Melhor hipótese", vencedor["nome"].split()[0])
-            col2.metric("R² vencedor",  f"{vencedor['r2']:.3f}")
-            col3.metric("Peso Akaike",  f"{vencedor['peso_akaike']:.1%}")
-            col4.metric("Hipóteses testadas", len(res["simulacao"]))
+            col1.metric("🏆 Best hypothesis", winner["name"].split()[0])
+            col2.metric("Winner R²",          f"{winner['r2']:.3f}")
+            col3.metric("Akaike weight",       f"{winner['akaike_weight']:.1%}")
+            col4.metric("Hypotheses tested",   len(res["simulation"]))
 
             st.divider()
 
-            # Dashboard matplotlib
-            st.markdown("### Dashboard completo")
-            st.pyplot(res["figura"], use_container_width=True)
+            # Matplotlib dashboard
+            st.markdown("### Complete dashboard")
+            st.pyplot(res["figure"], use_container_width=True)
 
-            # Download do dashboard
+            # Dashboard download
             buf = io.BytesIO()
-            res["figura"].savefig(buf, format="png", dpi=150,
+            res["figure"].savefig(buf, format="png", dpi=150,
                                   bbox_inches="tight", facecolor="#0d0d0d")
             st.download_button(
-                "⬇️ Baixar dashboard (PNG)",
+                "⬇️ Download dashboard (PNG)",
                 data=buf.getvalue(),
-                file_name="reprodutibilidade_dashboard.png",
+                file_name="reproducibility_dashboard.png",
                 mime="image/png",
             )
 
             st.divider()
 
-            # Tabela de ranking
-            st.markdown("### Ranking completo")
+            # Full ranking table
+            st.markdown("### Full ranking")
             ranking_df = pd.DataFrame([{
-                "Hipótese":       r["nome"],
-                "R²":             round(r["r2"], 4),
-                "RMSE":           round(r["rmse"], 2),
-                "AIC":            round(r["aic"], 1),
-                "Δ AIC":          round(r["delta_aic"], 1),
-                "Peso Akaike":    f"{r['peso_akaike']:.1%}",
-                "Score simulação":f"{r['score_simulado']:.1f}" if r["score_simulado"] else "—",
-            } for r in res["comparacao"].ranking])
+                "Hypothesis":    r["name"],
+                "R²":            round(r["r2"], 4),
+                "RMSE":          round(r["rmse"], 2),
+                "AIC":           round(r["aic"], 1),
+                "Δ AIC":         round(r["delta_aic"], 1),
+                "Akaike weight": f"{r['akaike_weight']:.1%}",
+                "Sim. score":    f"{r['simulated_score']:.1f}" if r["simulated_score"] else "—",
+            } for r in res["comparison"].ranking])
             st.dataframe(ranking_df, use_container_width=True)
 
-            # Download CSV
             csv = ranking_df.to_csv(index=False)
             st.download_button(
-                "⬇️ Baixar ranking (CSV)",
+                "⬇️ Download ranking (CSV)",
                 data=csv,
-                file_name="reprodutibilidade_ranking.csv",
+                file_name="reproducibility_ranking.csv",
                 mime="text/csv",
             )
 
-            # Detalhes por hipótese
+            # Per-hypothesis details
             st.divider()
-            st.markdown("### Detalhes por hipótese")
-            for rs, re_ in zip(res["simulacao"], res["empirico"]):
+            st.markdown("### Details per hypothesis")
+            for rs, re_ in zip(res["simulation"], res["empirical"]):
                 with st.expander(f"**{rs.hypothesis_name}**", expanded=False):
                     c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Score simulação", f"{rs.reproducibility_score:.1f}/100")
-                    c2.metric("CV",    f"{rs.coefficient_of_variation:.1f}%")
-                    c3.metric("R²",    f"{re_.r_squared:.4f}")
-                    c4.metric("RMSE",  f"{re_.rmse:.2f}")
-                    st.markdown(f"**Classificação:** {rs.classification}")
-                    st.markdown(f"**Resíduos normais (p-valor):** {re_.p_valor_residuals:.4f} "
-                                + ("✅" if re_.p_valor_residuals > 0.05 else "⚠️"))
+                    c1.metric("Sim. score", f"{rs.reproducibility_score:.1f}/100")
+                    c2.metric("CV",   f"{rs.coefficient_of_variation:.1f}%")
+                    c3.metric("R²",   f"{re_.r_squared:.4f}")
+                    c4.metric("RMSE", f"{re_.rmse:.2f}")
+                    st.markdown(f"**Classification:** {rs.classification}")
+                    st.markdown(
+                        f"**Residuals normal (p-value):** {re_.residuals_p_value:.4f} "
+                        + ("✅" if re_.residuals_p_value > 0.05 else "⚠️")
+                    )
 
-            # Análise temporal
+            # Temporal analysis
             if res["temporal"]:
                 st.divider()
-                st.markdown("### Análise temporal")
+                st.markdown("### Temporal analysis")
                 for rt in res["temporal"]:
                     cols = st.columns(len(rt.windows))
-                    for col, jan, score in zip(cols, rt.windows, rt.scores_per_window):
-                        col.metric(jan, f"{score:.1f}")
-                    status = "⚠️ Deriva detectada" if rt.drift_detected else "✅ Estável no tempo"
-                    st.markdown(f"**{rt.hypothesis_name}:** {status} "
-                                f"(tendência: {rt.trend:+.2f} pontos/janela)")
+                    for col, win, score in zip(cols, rt.windows, rt.scores_per_window):
+                        col.metric(win, f"{score:.1f}")
+                    status = ("⚠️ Drift detected" if rt.drift_detected
+                              else "✅ Stable over time")
+                    st.markdown(
+                        f"**{rt.hypothesis_name}:** {status} "
+                        f"(trend: {rt.trend:+.2f} points/window)"
+                    )

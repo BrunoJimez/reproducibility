@@ -1,0 +1,74 @@
+[
+  {
+    "case": "CO\u2082 \u2192 Global temperature",
+    "hypothesis": "Climate \u2014 Linear",
+    "sim_score": 69.03909508785942,
+    "r2": 0.7109065444869979,
+    "rmse": 0.198402598015215,
+    "aic": -393.89441907558614,
+    "composite": 49.08034452341941
+  },
+  {
+    "case": "CO\u2082 \u2192 Global temperature",
+    "hypothesis": "Climate \u2014 Logarithmic",
+    "sim_score": 77.99426560087403,
+    "r2": -3.917721063254845,
+    "rmse": 0.8182955142835364,
+    "aic": -45.33080881236404,
+    "composite": 3.8997132800437018
+  },
+  {
+    "case": "Minimum wage \u2192 Employment (CK 1994)",
+    "hypothesis": "CK \u2014 Positive effect",
+    "sim_score": 99.55353334982267,
+    "r2": 0.0033531876113546133,
+    "rmse": 8.197487205199721,
+    "aic": 1729.1386885134452,
+    "composite": 0.33382167469520374
+  },
+  {
+    "case": "Minimum wage \u2192 Employment (CK 1994)",
+    "hypothesis": "CK \u2014 No effect",
+    "sim_score": 100.0,
+    "r2": -1.573725315262564e-05,
+    "rmse": 8.21133033376405,
+    "aic": 1730.5222578155972,
+    "composite": 5.0
+  },
+  {
+    "case": "Minimum wage \u2192 Employment (CK 1994)",
+    "hypothesis": "CK \u2014 Negative effect",
+    "sim_score": 98.58031965323586,
+    "r2": -0.025842982740330145,
+    "rmse": 8.316690742178285,
+    "aic": 1740.9768312691785,
+    "composite": 4.929015982661793
+  },
+  {
+    "case": "Original effect \u2192 Replication (OSC 2015)",
+    "hypothesis": "OSC \u2014 Faithful replication",
+    "sim_score": 73.07705403232644,
+    "r2": -1.5236126153575005,
+    "rmse": 0.2706266968495697,
+    "aic": -257.40298188969166,
+    "composite": 3.6538527016163225
+  },
+  {
+    "case": "Original effect \u2192 Replication (OSC 2015)",
+    "hypothesis": "OSC \u2014 50% attenuation",
+    "sim_score": 73.07705403232644,
+    "r2": 0.2846834778505435,
+    "rmse": 0.14408156598426863,
+    "aic": -383.47514138249255,
+    "composite": 20.803829892994774
+  },
+  {
+    "case": "Original effect \u2192 Replication (OSC 2015)",
+    "hypothesis": "OSC \u2014 No relationship",
+    "sim_score": 100.0,
+    "r2": -0.005695049095120197,
+    "rmse": 0.17084113497179626,
+    "aic": -349.40423756794866,
+    "composite": 5.0
+  }
+]
