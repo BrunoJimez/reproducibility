@@ -9,7 +9,7 @@ tags:
   - model comparison
   - natural language processing
 authors:
-  - name: Bruno Jimez
+  - name: Bruno Oliveira Costa Jimez
     orcid: 0009-0002-8745-3418
     affiliation: 1
 affiliations:
