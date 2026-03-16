@@ -190,7 +190,7 @@ If you use this software in your research, please cite:
 
 ```bibtex
 @article{reproducibility2026,
-  author  = {Bruno Jimez},
+  author  = {Bruno Oliveira Costa Jimez},
   title   = {Reproducibility: an open-source tool for computational
              hypothesis testing in natural language},
   journal = {Journal of Open Source Software},
