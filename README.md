@@ -2,6 +2,12 @@
 
 > *"If the patterns of reality are consistent, a true hypothesis must be reproducible."*
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19042510.svg)](https://doi.org/10.5281/zenodo.19042510)
+[![Tests](https://img.shields.io/badge/tests-52%20passed-76ff03)](https://github.com/BrunoJimez/reproducibility/tree/main/tests)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
+[![Open Science](https://img.shields.io/badge/Open%20Science-%24%200%20cost-brightgreen)](https://joss.theoj.org)
+
 An open-source system for quantitative evaluation of scientific hypotheses
 formulated in natural language. Write your hypothesis in plain English (or
 Portuguese), connect it to real data from open sources, and receive a
@@ -15,7 +21,7 @@ reproducibility score validated against published literature.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/reproducibility.git
+git clone https://github.com/BrunoJimez/reproducibility.git
 cd reproducibility
 
 # 2. Create virtual environment (recommended)
@@ -147,7 +153,7 @@ pytest tests/ -v
 pytest tests/ --cov=reproducibility_core --cov-report=term-missing
 ```
 
-All 40 tests should pass. The scientific score validation tests verify that the
+All 52 tests should pass. The scientific score validation tests verify that the
 instrument correctly distinguishes between physical laws (score = 100), social
 constructions with high noise (score < 1), and intermediate empirical cases.
 
@@ -184,12 +190,12 @@ If you use this software in your research, please cite:
 
 ```bibtex
 @article{reproducibility2026,
-  author  = {[Your Name]},
+  author  = {Bruno Jimez},
   title   = {Reproducibility: an open-source tool for computational
              hypothesis testing in natural language},
   journal = {Journal of Open Source Software},
   year    = {2026},
-  doi     = {10.21105/joss.XXXXX}
+  doi     = {10.5281/zenodo.19042510}
 }
 ```
 
