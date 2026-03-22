@@ -170,9 +170,9 @@ with tab1:
         col_a, col_b = st.columns(2)
         with col_a:
             btn_translate = st.button("🔄 Translate hypothesis", type="primary",
-                                      use_container_width=True)
+                                      width="stretch")
         with col_b:
-            btn_clear = st.button("🗑 Clear list", use_container_width=True)
+            btn_clear = st.button("🗑 Clear list", width="stretch")
 
         if btn_clear:
             st.session_state.hypotheses = []
@@ -378,9 +378,9 @@ with tab2:
         col1.metric("Rows",    len(df))
         col2.metric("Columns", len(df.columns))
         col3.metric("Source",  df.attrs.get("source", "—"))
-        st.dataframe(df.head(20), use_container_width=True)
+        st.dataframe(df.head(20), width="stretch")
         st.markdown("**Descriptive statistics:**")
-        st.dataframe(df.describe().round(3), use_container_width=True)
+        st.dataframe(df.describe().round(3), width="stretch")
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -429,7 +429,7 @@ with tab3:
 
         st.divider()
         btn_run = st.button("🚀 Run full analysis", type="primary",
-                            use_container_width=True, disabled=not valid)
+                            width="stretch", disabled=not valid)
 
         if btn_run:
             progress   = st.progress(0, text="Starting...")
@@ -474,6 +474,22 @@ with tab3:
             res = st.session_state.results
             st.divider()
 
+            # Mapping quality check: warn if any R² is suspiciously extreme
+            extreme_r2 = [
+                re_.hypothesis_name
+                for re_ in res["empirical"]
+                if abs(re_.r_squared) > 50
+            ]
+            if extreme_r2:
+                st.warning(
+                    "⚠️ **Mapping check:** one or more hypotheses have extreme R² values "
+                    f"({', '.join(extreme_r2)}). This usually means a variable was mapped "
+                    "to the wrong column — for example, a CO₂ hypothesis mapped against "
+                    "an income column. Please verify the variable → column mapping above "
+                    "and re-run. Tip: inspect `hypothesis.variables` to confirm which "
+                    "symbol corresponds to which concept."
+                )
+
             # Quick metrics
             winner = res["comparison"].winner
             col1, col2, col3, col4 = st.columns(4)
@@ -486,7 +502,7 @@ with tab3:
 
             # Matplotlib dashboard
             st.markdown("### Complete dashboard")
-            st.pyplot(res["figure"], use_container_width=True)
+            st.pyplot(res["figure"], width="stretch")
 
             # Dashboard download
             buf = io.BytesIO()
@@ -504,15 +520,16 @@ with tab3:
             # Full ranking table
             st.markdown("### Full ranking")
             ranking_df = pd.DataFrame([{
-                "Hypothesis":    r["name"],
-                "R²":            round(r["r2"], 4),
-                "RMSE":          round(r["rmse"], 2),
-                "AIC":           round(r["aic"], 1),
-                "Δ AIC":         round(r["delta_aic"], 1),
-                "Akaike weight": f"{r['akaike_weight']:.1%}",
-                "Sim. score":    f"{r['simulated_score']:.1f}" if r["simulated_score"] else "—",
+                "Hypothesis":      r["name"],
+                "R²":              round(r["r2"], 4),
+                "RMSE":            round(r["rmse"], 2),
+                "AIC":             round(r["aic"], 1),
+                "Δ AIC":           round(r["delta_aic"], 1),
+                "Akaike weight":   f"{r['akaike_weight']:.1%}",
+                "Sim. score":      f"{r['simulated_score']:.1f}" if r["simulated_score"] else "—",
+                "Composite score": f"{next((e.composite_score for e in res['empirical'] if e.hypothesis_name == r['name']), 0.0):.1f}",
             } for r in res["comparison"].ranking])
-            st.dataframe(ranking_df, use_container_width=True)
+            st.dataframe(ranking_df, width="stretch")
 
             csv = ranking_df.to_csv(index=False)
             st.download_button(
@@ -527,11 +544,12 @@ with tab3:
             st.markdown("### Details per hypothesis")
             for rs, re_ in zip(res["simulation"], res["empirical"]):
                 with st.expander(f"**{rs.hypothesis_name}**", expanded=False):
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Sim. score", f"{rs.reproducibility_score:.1f}/100")
-                    c2.metric("CV",   f"{rs.coefficient_of_variation:.1f}%")
-                    c3.metric("R²",   f"{re_.r_squared:.4f}")
-                    c4.metric("RMSE", f"{re_.rmse:.2f}")
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    c1.metric("Sim. score",      f"{rs.reproducibility_score:.1f}/100")
+                    c2.metric("CV",              f"{rs.coefficient_of_variation:.1f}%")
+                    c3.metric("R²",              f"{re_.r_squared:.4f}")
+                    c4.metric("RMSE",            f"{re_.rmse:.2f}")
+                    c5.metric("Composite score", f"{re_.composite_score:.1f}/100")
                     st.markdown(f"**Classification:** {rs.classification}")
                     st.markdown(
                         f"**Residuals normal (p-value):** {re_.residuals_p_value:.4f} "

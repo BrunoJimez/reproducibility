@@ -2,12 +2,6 @@
 
 > *"If the patterns of reality are consistent, a true hypothesis must be reproducible."*
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19042510.svg)](https://doi.org/10.5281/zenodo.19042510)
-[![Tests](https://img.shields.io/badge/tests-52%20passed-76ff03)](https://github.com/BrunoJimez/reproducibility/tree/main/tests)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
-[![Open Science](https://img.shields.io/badge/Open%20Science-%24%200%20cost-brightgreen)](https://joss.theoj.org)
-
 An open-source system for quantitative evaluation of scientific hypotheses
 formulated in natural language. Write your hypothesis in plain English (or
 Portuguese), connect it to real data from open sources, and receive a
@@ -85,14 +79,15 @@ A hypothesis must be both *internally consistent* (high $S_{\text{sim}}$) **and*
 
 ## Validation results
 
-The composite score was validated against three published datasets with known
-expected behaviour:
+The composite score was validated against five cases with known expected behaviour:
 
 | Case | Best hypothesis | Composite score | Expected | |
 |---|---|---|---|---|
 | CO₂ → Global temperature (IPCC AR6) | Linear | **49.1** | ≥ 40 | ✅ |
-| Minimum wage → Employment (Card & Krueger 1994) | Positive effect | **5.0** | ≤ 20 | ✅ |
-| Original effect → Replication (OSC 2015) | 50% attenuation | **20.5** | 10–30 | ✅ |
+| Minimum wage → Employment (Card & Krueger 1994) | Positive effect | **0.3** | ≤ 20 | ✅ |
+| Original effect → Replication (OSC 2015) | 50% attenuation | **20.8** | 10–30 | ✅ |
+| GDP per capita → Life expectancy (Preston) | Logarithmic | **56.3** | ≥ 40 | ✅ |
+| GDP per capita → CO₂ emissions (Kuznets) | Linear | **48.3** | ≥ 40 | ✅ |
 
 And against four a priori cases:
 
@@ -100,7 +95,7 @@ And against four a priori cases:
 |---|---|---|
 | Newton's Law of Gravitation | **100.0** | 0.000% |
 | Constant function y = 5 | **100.0** | 0.000% |
-| Pure Meritocracy + structural noise | **0.8** | 48.8% |
+| Mincer earnings equation + high residual variance | **0.8** | 48.8% |
 | Random noise hypothesis | **0.0** | 2129% |
 
 ---
@@ -135,10 +130,11 @@ reproducibility/
 ├── app.py                    # Streamlit web interface
 ├── phase3_validation.py      # External validation script
 ├── tests/
-│   └── test_core.py          # 40 automated tests
+│   └── test_core.py          # 52 automated tests
 ├── requirements.txt
 ├── paper.md                  # JOSS article
 ├── paper.bib                 # References
+├── REPRODUCTION_GUIDE.md     # Step-by-step reproduction instructions
 ├── README.md                 # This file
 └── LICENSE                   # MIT
 ```
@@ -169,7 +165,7 @@ translator = OpenTranslator()
 h = translator.translate("Population grows exponentially with the reproduction rate")
 
 # Fetch real data
-df = DataFetcher().fetch_worldbank("population", "BR", 2000, 2022)
+df = DataFetcher().fetch_worldbank("population", country="BR", year_start=2000, year_end=2022)
 
 # Run full pipeline
 results = run_pipeline(
@@ -190,12 +186,12 @@ If you use this software in your research, please cite:
 
 ```bibtex
 @article{reproducibility2026,
-  author  = {Bruno Oliveira Costa Jimez},
+  author  = {[Your Name]},
   title   = {Reproducibility: an open-source tool for computational
              hypothesis testing in natural language},
   journal = {Journal of Open Source Software},
   year    = {2026},
-  doi     = {10.5281/zenodo.19042510}
+  doi     = {10.21105/joss.XXXXX}
 }
 ```
 

@@ -8,21 +8,29 @@ Three cases with expected behaviour KNOWN from the literature:
 CASE 1 — CO₂ and global temperature (NASA/IPCC)
   Live source : NASA POWER + World Bank (CO₂ per capita)
   Embedded    : IPCC AR6 series (anomalies 1900–2022, public domain)
-  Expected    : HIGH score (≥ 40 composite) — robust physical relationship
+  Expected    : HIGH score (>= 40 composite) — robust physical relationship
 
 CASE 2 — Minimum wage and employment (Card & Krueger, 1994)
   Live source : davidcard.berkeley.edu/data_sets/njmin.zip
   Embedded    : reconstructed from Table 3 of the published article
-  Expected    : LOW score (≤ 20 composite) — controversial effect
+  Expected    : LOW score (<= 20 composite) — controversial effect
 
 CASE 3 — Psychological effects and replication (OSC, 2015)
   Live source : osf.io/5wup8 (public CSV, CC0 licence)
   Embedded    : reconstructed from 100 studies reported in the article
   Expected    : MID-LOW score (10–30 composite) — 61% failed to replicate
 
+Note: Cases 4 and 5 of the full paper (Preston Curve and Kuznets
+Environmental Curve) are validated separately via World Bank Open Data
+and are not included in this script.
+
 Usage:
     python phase3_validation.py            # uses embedded datasets (offline)
     python phase3_validation.py --live     # attempts to fetch live data (requires network)
+
+Internet requirement: the --live flag requires a stable internet connection.
+The embedded datasets are the only guaranteed offline, deterministic data
+source for reproducing the results in Table 2 (Cases 1-3) of the paper.
 """
 
 import sys
@@ -398,12 +406,13 @@ def analyse_case(name, df, hypotheses, target_column, mappings,
     for h, mapping in zip(hypotheses, mappings):
         rs = engine.test(h)
         re = tester.test(h, df, target_column, mapping)
-        # Composite score: combines simulated consistency × empirical fit
-        # Captures hypotheses that are both internally consistent AND explain the data
+        # Composite score: S_comp = S_sim x max(0, R2)
+        # Consistent with run_pipeline(): zero when R2 <= 0,
+        # meaning the hypothesis is no better than the unconditional mean.
         if re.r_squared > 0:
             re.composite_score = rs.reproducibility_score * re.r_squared
         else:
-            re.composite_score = rs.reproducibility_score * 0.05
+            re.composite_score = 0.0
         res_sim.append(rs)
         res_emp.append(re)
         print(f"  {h.name:<32} "
@@ -420,6 +429,7 @@ def analyse_case(name, df, hypotheses, target_column, mappings,
         "name":          name,
         "df":            df,
         "hypotheses":    hypotheses,
+        "mappings":      mappings,
         "sim":           res_sim,
         "emp":           res_emp,
         "comp":          comp,
@@ -469,9 +479,20 @@ def generate_dashboard_phase3(cases,
 
         df_case = case["df"]
         alvo    = case["target_column"]
+        # Use the first variable from the first hypothesis mapping as X axis.
+        # This ensures Case 2 (Card & Krueger) shows 'state' (the predictor),
+        # not 'restaurant' (the index), which produced an uninformative scatter.
         try:
-            col_x = [c for c in df_case.columns
-                     if c != alvo and pd.api.types.is_numeric_dtype(df_case[c])][0]
+            first_mapping = case.get("mappings", [{}])[0] if case.get("mappings") else {}
+            mapped_cols   = list(first_mapping.values())
+            candidates    = [c for c in mapped_cols
+                             if c != alvo and c in df_case.columns
+                             and pd.api.types.is_numeric_dtype(df_case[c])]
+            if not candidates:
+                candidates = [c for c in df_case.columns
+                              if c != alvo
+                              and pd.api.types.is_numeric_dtype(df_case[c])]
+            col_x = candidates[0]
             ax_sc.scatter(df_case[col_x], df_case[alvo], s=8, alpha=0.5, color=col_c)
             ax_sc.set_xlabel(col_x, color="#888", fontsize=8)
             ax_sc.set_ylabel(alvo,  color="#888", fontsize=8)
@@ -584,12 +605,13 @@ def generate_paper_table(cases):
         scores_per_case[case["name"]] = best.composite_score
 
     for name, score in scores_per_case.items():
-        if "CO₂" in name or "Climate" in name:
-            category, expected = "HIGH",     "≥ 40"
-        elif "Card" in name or "Wage" in name or "mínimo" in name:
-            category, expected = "LOW",      "≤ 20"
+        name_lower = name.lower()   # case-insensitive matching
+        if "co₂" in name_lower or "climate" in name_lower or "temperature" in name_lower:
+            category, expected = "HIGH",    "≥ 40"
+        elif "wage" in name_lower or "card" in name_lower or "employment" in name_lower:
+            category, expected = "LOW",     "≤ 20"
         else:
-            category, expected = "MID-LOW",  "10–30"
+            category, expected = "MID-LOW", "10–30"
         compliant = (
             (category == "HIGH"    and score >= 40) or
             (category == "LOW"     and score <= 20) or
@@ -702,22 +724,34 @@ def main():
   ══════════════════════════════════════════════════════════════════
   INTERPRETATION FOR THE PAPER
 
-  The composite score discriminates the 3 cases as predicted by
-  the literature:
+  This script reproduces Cases 1-3 of Table 2. The full paper
+  also reports Cases 4-5 (Preston Curve and Kuznets Environmental
+  Curve), validated independently with World Bank Open Data.
 
-  • CO₂ → Temperature: robust physical relationship accumulated over
-    decades of independent measurements → HIGH score expected.
+  The composite score discriminates the 3 embedded cases as
+  predicted by the literature:
 
-  • Card & Krueger: empirically controversial result — replicated by
-    some and contested by others (Neumark & Wascher 2000) → LOW
-    score expected, reflecting the actual debate in the literature.
+  Case 1 — CO2 -> Temperature: robust physical relationship
+    accumulated over decades of independent measurements.
+    -> HIGH score expected (>= 40).
 
-  • OSC 2015: fewer than half of replications produced the same
-    results as the original study → MID-LOW score expected, capturing
-    the documented reproducibility crisis.
+  Case 2 — Card & Krueger: empirically controversial result,
+    replicated by some and contested by others (Neumark &
+    Wascher 2000). Effect small relative to natural variance.
+    -> LOW score expected (<= 20).
 
-  These results provide empirical evidence that the instrument is
-  valid for hypothesis screening in open science.
+  Case 3 — OSC 2015: fewer than half of replications produced
+    equivalent results to the original study, with replication
+    effects approximately half the original magnitude.
+    -> MID-LOW score expected (10-30).
+
+  These results provide empirical evidence that the composite
+  score correctly positions hypotheses relative to their known
+  status in the scientific literature.
+
+  Note: live data (--live flag) requires internet access.
+  Embedded datasets are the only guaranteed offline source
+  for deterministic reproduction of these results.
   ══════════════════════════════════════════════════════════════════
 """)
 
