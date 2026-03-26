@@ -55,6 +55,17 @@ class Variable:
     description: str = ""
 
     def sample(self, n: int) -> np.ndarray:
+        """Sample n values uniformly from [minimum, maximum].
+
+        Design note — uniform prior: all values within the plausible range
+        are treated as equally likely. This is a simplifying assumption that
+        is computationally convenient but may differ from the true marginal
+        distribution of the variable in practice (e.g., atmospheric CO2
+        concentrations are not uniformly distributed between 290 and 420 ppm).
+        S_sim is therefore sensitive to the choice of domain bounds; users
+        should set [minimum, maximum] to reflect the range of scientific
+        interest rather than theoretical extremes.
+        """
         return np.random.uniform(self.minimum, self.maximum, n)
 
 
@@ -419,6 +430,18 @@ class ReproducibilityEngine:
             np.random.seed(seed)
 
     def test(self, hypothesis: Hypothesis) -> SimulationResult:
+        """Run n_trials Monte Carlo simulations and return a SimulationResult.
+
+        Design note — seed reuse: if a seed is set, it is reset to the same
+        value at the start of every call to test(). This guarantees
+        deterministic, reproducible results for each individual hypothesis,
+        but means that two hypotheses tested sequentially share the same
+        random sequence — their trials are correlated. This is intentional:
+        it ensures that score differences between hypotheses reflect only
+        differences in their mathematical structure, not sampling variance.
+        To obtain statistically independent trials across hypotheses, omit
+        the seed or pass distinct seeds per hypothesis explicitly.
+        """
         if self.seed is not None:
             np.random.seed(self.seed)
         results = []
@@ -434,6 +457,9 @@ class ReproducibilityEngine:
         mean, dp = np.mean(arr), np.std(arr)
         cv = (dp / abs(mean) * 100) if mean != 0 else float("inf")
         ic = stats.t.interval(0.95, df=len(arr)-1, loc=mean, scale=stats.sem(arr))
+        # Shapiro-Wilk is truncated to 50 points: the test has optimal power
+        # for small n. With large n it detects trivially small deviations from
+        # normality that have no practical significance for reproducibility.
         _, p_norm = stats.shapiro(arr[:50])
         score = min(100.0, 100 * np.exp(-cv / 10))
         cls = ("✅ Highly reproducible" if score >= 85 else
@@ -466,10 +492,26 @@ class EmpiricalTester:
         r2   = 1 - ss_res / ss_tot if ss_tot != 0 else 0.0
         rmse = np.sqrt(np.mean(res ** 2))
         mae  = np.mean(np.abs(res))
+        # Shapiro-Wilk truncated to 50 residuals — see note in _metrics().
         _, p_res = stats.shapiro(res[:50])
         k = len(hypothesis.variables) + 1
+        # Log-likelihood uses the Gaussian MLE form omitting additive constants
+        # (-n/2 * log(2*pi) and -n/2) that are identical across all hypotheses
+        # tested on the same dataset. Consequently, delta-AIC values and Akaike
+        # weights are numerically identical to those from the full formula, but
+        # the absolute AIC values are not comparable across datasets of different
+        # size n. This is documented in the paper (Theoretical Background, AIC).
         ll = -n / 2 * np.log(ss_res / n + 1e-10)
         aic, bic = 2*k - 2*ll, k*np.log(n) - 2*ll
+        # empirical_score: a secondary diagnostic metric (not the primary
+        # reporting metric — use composite_score for that). It combines:
+        #   70% weight on R2: proportion of variance explained by the hypothesis
+        #   30% weight on residual normality (p > 0.05 => Gaussian residuals)
+        # Rationale for 70/30: R2 is the dominant criterion for predictive fit;
+        # residual normality is a supplementary model-adequacy check. These
+        # weights are heuristic — they are not derived from a formal criterion.
+        # The composite_score (S_sim * max(0, R2)) is the theoretically grounded
+        # metric defined in the paper and should be used for all comparisons.
         score = max(0.0, min(100.0, r2 * 70 + (p_res > 0.05) * 30))
         return EmpiricalResult(hypothesis.name, n, r2, rmse, mae, res, p_res, aic, bic, score, 0.0)
 
@@ -852,14 +894,20 @@ def run_pipeline(
     target_column:    str,
     mappings:    List[Dict[str, str]],
     time_column:   Optional[str] = None,
-    n_trials:       int = 60,
-    sample_size:    int = 200,
+    n_trials:       int = 80,
+    sample_size:    int = 300,
     n_windows:      int = 5,
     seed:           int = 42,
 ) -> Dict[str, Any]:
     """
     Run all analytical modules and return a consolidated results dictionary.
     app.py uses this dictionary to build the Streamlit UI.
+
+    Default parameters match those used in phase3_validation.py (n_trials=80,
+    sample_size=300), ensuring that results from run_pipeline() are directly
+    comparable to the validation results reported in Table 2 of the paper.
+    Table 1 results were produced with n_trials=100, sample_size=500 (used in
+    TestScoreValidation) to achieve higher precision for calibration anchors.
     """
     engine     = ReproducibilityEngine(n_trials, sample_size, seed)
     tester     = EmpiricalTester()

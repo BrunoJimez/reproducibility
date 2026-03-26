@@ -496,6 +496,9 @@ class TestDataFetcher:
     def test_worldbank_indicator_list_not_empty(self):
         indicators = self.fetcher.list_worldbank_indicators()
         assert len(indicators) > 0
+        # Verify canonical English key (primary identifier)
+        assert "gdp_per_capita" in indicators
+        # Verify Portuguese alias is preserved for backward compatibility
         assert "pib_per_capita" in indicators
 
 

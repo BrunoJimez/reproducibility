@@ -114,6 +114,9 @@ mathematically consistent, do not explain the observed variation in data. When
 $R^2 \leq 0$ — meaning the hypothesis performs worse than simply predicting
 the mean — the composite score is zero. The composite score is automatically
 computed by `run_pipeline()` and is the recommended metric for all reporting.
+$S_{\text{comp}}$ is a scale on $[0, 100]$ and is **not** a probability;
+it should not be interpreted as or compared directly with the Akaike weights
+$w_i$, which are probabilities summing to one across the competing hypotheses.
 
 ## Hypothesis comparison via Akaike criterion
 
@@ -124,7 +127,12 @@ $$AIC = 2k - 2\ln(\hat{L})$$
 
 AIC was selected over BIC and adjusted-$R^2$ because the hypotheses tested are
 typically non-nested — none is a special case of another — a condition for which
-AIC was specifically designed [@burnham2002]. The normalised Akaike weight $w_i$
+AIC was specifically designed [@burnham2002]. The implementation omits additive
+constants from the Gaussian log-likelihood ($-\frac{n}{2}\ln(2\pi)$ and
+$-\frac{n}{2}$) that cancel in all $\Delta_i$ computations and therefore do
+not affect Akaike weights or rankings. Absolute AIC values are consequently
+not comparable across datasets of different size $n$; only $\Delta_i$ and
+$w_i$ should be interpreted. The normalised Akaike weight $w_i$
 represents the relative probability that each hypothesis is the best
 approximation to reality given the tested model set:
 
@@ -196,7 +204,7 @@ from controversial to robust relationships.
 | Mincer earnings equation with high residual variance [@mincer1974] | High-noise social | 0.8 | 48.8 | $\leq 10$ |
 | Hypothesis with noise $\sigma = 1000$ | No structure | 0.0 | 2129 | $\leq 10$ |
 
-*$n = 100$ trials $\times$ 500 samples. Seed = 42.*
+*Table 1 parameters: $n = 100$ trials $\times$ 500 samples, seed = 42. These higher-precision parameters are used in the `TestScoreValidation` test class to serve as calibration anchors. Table 2 results were produced with $n = 80$ trials $\times$ 300 samples (matching `phase3_validation.py` defaults). The `run_pipeline()` function uses the same defaults (80 trials, 300 samples); scores obtained interactively are therefore directly comparable to Table 2 but will differ slightly from Table 1.*
 
 The third case implements a simplified Mincer earnings equation
 [@mincer1974; @becker1964], modelling income as a linear function of education
@@ -287,9 +295,13 @@ hypothesis = translator.translate(
     "Life expectancy increases with GDP per capita"
 )
 
-# Inspect which variable symbols were assigned before mapping
-print([(v.name, v.description) for v in hypothesis.variables])
-# e.g. [('ev', 'life expectancy (anos)'), ('gdp', 'gdp (USD)')]
+# Always inspect variable symbols before constructing the mapping.
+# The RuleParser may detect multiple variables; all must be mapped.
+for v in hypothesis.variables:
+    print(f"  symbol '{v.name}' -> {v.description}")
+# Example output:
+#   symbol 'ev' -> life expectancy (anos)
+#   symbol 'gdp' -> gdp (USD)
 
 # 2. Real data from World Bank (no API key required)
 df = DataFetcher().fetch_worldbank_multiple_countries(
@@ -298,13 +310,14 @@ df = DataFetcher().fetch_worldbank_multiple_countries(
 )
 
 # 3. Full pipeline
-# mappings: bridge between hypothesis variable symbols and DataFrame columns.
-# Symbol 'ev' (life expectancy) maps to column 'life_expectancy'.
+# mappings: maps every hypothesis symbol to a DataFrame column.
+# Both symbols detected above must be mapped; omitting any symbol
+# will raise a KeyError when the hypothesis function executes.
 results = run_pipeline(
     hypotheses    = [hypothesis],
     df            = df,
     target_column = "life_expectancy",
-    mappings      = [{"ev": "life_expectancy"}],
+    mappings      = [{"ev": "life_expectancy", "gdp": "gdp_per_capita"}],
 )
 print(f"R²              = {results['empirical'][0].r_squared:.3f}")
 print(f"Sim. score      = {results['simulation'][0].reproducibility_score:.1f}/100")
@@ -314,8 +327,9 @@ print(f"Composite score = {results['empirical'][0].composite_score:.1f}/100")
 The `mappings` parameter bridges hypothesis variable symbols (assigned
 automatically by the translator) to the actual column names in the DataFrame.
 Always inspect `hypothesis.variables` before defining the mapping to confirm
-which symbols correspond to which concepts, and verify that the target column
-has a plausible magnitude relative to the hypothesis output.
+which symbols were detected — the RuleParser may identify multiple independent
+variables, all of which must appear as keys in the mapping dictionary.
+Mapping only a subset of detected variables will cause a `KeyError` at runtime.
 
 # Automated Tests
 
@@ -340,6 +354,13 @@ the user must verify the mapping between hypothesis variable symbols and dataset
 columns before running the pipeline (inspecting `hypothesis.variables` is
 recommended to avoid mapping errors).
 
+The system internally computes a secondary diagnostic metric, `empirical_score`,
+combining $R^2$ (weight 0.70) and a residual-normality indicator (weight 0.30).
+These weights are heuristic and not derived from a formal criterion; the metric
+is exposed in the ranking table for diagnostic purposes only. The **composite
+score** ($S_{\text{comp}}$) is the theoretically grounded primary metric and
+should be used for all comparisons and reporting.
+
 The **composite score** formula was validated on the ten cases reported in
 Tables 1 and 2, but has not been calibrated against a large corpus of published
 hypotheses; qualitative thresholds (≥ 40: robust relationship; 10–30: moderate;
@@ -350,18 +371,40 @@ systematically wrong relative to empirical data; $S_{\text{comp}}$ partially
 addresses this through $R^2$, but sensitivity to dataset quality and sample
 size is not quantified. No confidence interval is currently reported for either
 score; differences smaller than approximately 5 points should be interpreted
-with caution given Monte Carlo sampling variance.
+with caution given Monte Carlo sampling variance. The Shapiro-Wilk
+normality test is applied to a maximum of 50 observations (trials or
+residuals); with larger samples, the test is known to detect trivially
+small deviations that have no practical significance, so this truncation
+is intentional [@burnham2002]. Additionally, $S_{\text{sim}}$
+assumes a **uniform prior** over each variable's domain: all values in
+$[v_{\min}, v_{\max}]$ are sampled with equal probability. This simplification
+may over- or under-estimate the true CV when the variable's real-world
+distribution is non-uniform (e.g., concentrated near a mode). Users should
+set domain bounds to reflect the range of scientific interest rather than
+theoretical extremes.
 
 Hypotheses with variable interactions (moderation, mediation) require the user
 to supply the functional form manually, as the current NLP layers do not parse
 interaction terms. This limits direct applicability to multivariate causal
 models common in psychology, medicine, and epidemiology.
 
+When a fixed seed is used, the random number generator is reset to the same
+state at the start of each hypothesis evaluation. Consequently, the Monte Carlo
+trials of different hypotheses tested in the same session are **correlated**:
+they share the same random sequence. This ensures deterministic, reproducible
+scores for each hypothesis individually, but means that score differences
+between hypotheses do not arise from statistically independent samples.
+For applications requiring inter-hypothesis independence (e.g., hypothesis
+ranking with formal uncertainty quantification), users should omit the seed
+or derive distinct seeds per hypothesis.
+
 # Future Work
 
 - Calibration of the composite score against a corpus of hypotheses with known
   reproducibility (e.g., OSF studies with documented replication rates)
 - Bootstrap confidence intervals for $S_{\text{sim}}$ and $S_{\text{comp}}$
+- Temporal windows defined by equal time intervals rather than equal row counts,
+  to handle datasets with irregular temporal sampling
 - `suggest_mapping()` helper function to automatically infer variable-to-column
   mappings from name similarity, reducing a common source of user error
 - Integration with open repositories (Zenodo, Figshare, OSF) for automatic
@@ -381,6 +424,10 @@ models common in psychology, medicine, and epidemiology.
 | requests | 2.31.0 | Open APIs (World Bank, NASA POWER, IBGE) |
 | streamlit | 1.32.0 | Web interface |
 | openpyxl | 3.1.0 | Excel file support |
+
+# License
+
+The software is released under the MIT License.
 
 # Acknowledgements
 
