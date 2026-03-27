@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/__pycache__/
+Reproducibility_JOSS_Preprint.pdf
+paper.bib
+paper.md
+paper.tex
